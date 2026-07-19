@@ -11,10 +11,22 @@ launcher, `_Other` files, and `games/sonic-mania` runtime into their MiSTer
 locations. README/license files and any bundled `Data.rsdk` placeholder are
 excluded.
 
-The real `Data.rsdk` game data is not included. `MiSTer.ini` is not modified.
-
 ## Installation
 
 Download
 [`downloader_MultiDatabases_sonic-mania.zip`](https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/sonic-mania/downloader_MultiDatabases_sonic-mania.zip),
 extract it to `/media/fat` on the MiSTer SD card, and run the MiSTer updaters.
+
+Add these sections to `/media/fat/MiSTer.ini`:
+
+```ini
+[Sonic Mania]
+main=MiSTer_SonicMania
+
+[Sonic Mania (4:3)]
+main=MiSTer_SonicMania
+```
+
+Copy `Data.rsdk` from your own Sonic Mania installation to
+`/media/fat/games/sonic-mania/Data.rsdk`. The database does not include the
+game data.

@@ -13,10 +13,14 @@ successive dated RBF files so a failed update does not remove the working core.
 The launcher is maintained in this folder and served from the repository's
 `main` branch.
 
-Paprium ROM/WAV data is not included.
-
 ## Installation
 
 Download
 [`downloader_MultiDatabases_paprium.zip`](https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/paprium/downloader_MultiDatabases_paprium.zip),
 extract it to `/media/fat` on the MiSTer SD card, and run the MiSTer updaters.
+
+No `MiSTer.ini` changes are required.
+
+Place your own compatible Paprium ROM and its accompanying WAV files in
+`/media/fat/games/PapriumMD/`. The database provides only the core and
+launcher; it does not include the ROM or WAV data.
