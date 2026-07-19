@@ -3,7 +3,7 @@
 - Database ID: `MultiDatabases/dreamster`
 - Upstream: [`skmp/DreamSTer`](https://github.com/skmp/DreamSTer)
 - Database URL:
-  `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/dreamster/db.json.zip`
+  `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/dreamster/db.json`
 
 The generator follows the newest published DreamSTer release containing a
 DreamSTer ZIP, including releases marked as pre-release. It installs the

@@ -4,7 +4,7 @@
 - Upstream:
   [`kimchiman52/sonic-mania-mister`](https://github.com/kimchiman52/sonic-mania-mister)
 - Database URL:
-  `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/sonic-mania/db.json.zip`
+  `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/sonic-mania/db.json`
 
 The generator follows the latest GitHub release ZIP and selectively maps its
 launcher, `_Other` files, and `games/sonic-mania` runtime into their MiSTer

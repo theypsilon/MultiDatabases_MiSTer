@@ -4,7 +4,7 @@
 - Upstream:
   [`MisterPezz82/Paprium_MegaDrive_MiSTer`](https://github.com/MisterPezz82/Paprium_MegaDrive_MiSTer)
 - Database URL:
-  `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/paprium/db.json.zip`
+  `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/paprium/db.json`
 
 The generator follows the newest `MegaDrive_Paprium_YYYYMMDD.rbf` asset in the
 latest release. It installs that core and `PapriumMD.mgl`, creates

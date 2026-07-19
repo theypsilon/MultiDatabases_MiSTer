@@ -94,7 +94,7 @@ def database_url(repository: str, folder: str) -> str:
         raise ValueError(f'Expected repository as "owner/name", got: {repository}')
     return (
         f"https://raw.githubusercontent.com/{repository}/db/"
-        f"{folder}/db.json.zip"
+        f"{folder}/db.json"
     )
 
 

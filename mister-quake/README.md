@@ -3,7 +3,7 @@
 - Database ID: `MultiDatabases/mister-quake`
 - Upstream: [`neofreno/Mister_Quake`](https://github.com/neofreno/Mister_Quake)
 - Database URL:
-  `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/mister-quake/db.json.zip`
+  `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/mister-quake/db.json`
 
 The generator follows the latest GitHub release asset named
 `MiSTer_Quake_YYYYMMDD.zip`. It installs the launcher, RBF, runtime, libraries,

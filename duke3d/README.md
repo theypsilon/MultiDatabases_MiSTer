@@ -3,7 +3,7 @@
 - Database ID: `MultiDatabases/duke3d`
 - Upstream: [`neofreno/Mister_Duke3d`](https://github.com/neofreno/Mister_Duke3d)
 - Database URL:
-  `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/duke3d/db.json.zip`
+  `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/duke3d/db.json`
 
 The generator follows the latest GitHub release asset named
 `Mister_duke3d_YYYYMMDD.zip`. It installs the launcher, RBF, runtime, libraries,

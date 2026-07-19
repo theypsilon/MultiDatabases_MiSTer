@@ -37,6 +37,9 @@ class WriteBundleTests(unittest.TestCase):
             output = Path(temporary_directory) / "dreamster"
             self.assertTrue(write_bundle(database("dreamster", 100), output))
             before = snapshot(output)
+            drop_in = output / "downloader_MultiDatabases_dreamster.ini"
+            self.assertIn("/dreamster/db.json\n", drop_in.read_text(encoding="utf-8"))
+            self.assertNotIn("db.json.zip", drop_in.read_text(encoding="utf-8"))
 
             self.assertFalse(write_bundle(database("dreamster", 200), output))
 
