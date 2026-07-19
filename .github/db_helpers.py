@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+"""Shared database generation helpers."""
+
 from __future__ import annotations
 
 import argparse
@@ -9,6 +11,7 @@ import json
 import os
 import posixpath
 import re
+import shutil
 import time
 import urllib.error
 import urllib.parse
@@ -19,7 +22,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 
-DB_NAMESPACE = "MultiDatabases_MiSTer"
+DB_NAMESPACE = "MultiDatabases"
 DEFAULT_REPOSITORY = "theypsilon/MultiDatabases_MiSTer"
 USER_AGENT = "MultiDatabases-MiSTer/1"
 
@@ -326,14 +329,58 @@ def build_direct_database(
     return database
 
 
-def write_bundle(database: dict[str, Any], output: Path) -> None:
+def databases_have_same_content(
+    previous: dict[str, Any], candidate: dict[str, Any]
+) -> bool:
+    previous_content = dict(previous)
+    candidate_content = dict(candidate)
+    previous_content.pop("timestamp", None)
+    candidate_content.pop("timestamp", None)
+    return previous_content == candidate_content
+
+
+def bundle_needs_update(database: dict[str, Any], output: Path) -> bool:
+    db_id = str(database["db_id"])
+    sanitized_id = re.sub(r"[^A-Za-z0-9._-]+", "_", db_id).strip("._-")
+    if not sanitized_id:
+        raise RuntimeError(f"Unable to create a drop-in name for {db_id}")
+
+    expected_files = (
+        output / "db.json",
+        output / "db.json.zip",
+        output / f"downloader_{sanitized_id}.ini",
+        output / f"downloader_{sanitized_id}.zip",
+    )
+    if not all(path.is_file() for path in expected_files):
+        return True
+
+    try:
+        previous = json.loads((output / "db.json").read_bytes())
+        validate_database(previous)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RuntimeError, TypeError):
+        return True
+
+    return not databases_have_same_content(previous, database)
+
+
+def write_bundle(database: dict[str, Any], output: Path) -> bool:
     validate_database(database)
-    output.mkdir(parents=True, exist_ok=True)
+    db_id = str(database["db_id"])
+    if not bundle_needs_update(database, output):
+        print(f"No changes detected for {db_id}; preserving existing bundle", flush=True)
+        return False
 
     encoded = (
         json.dumps(database, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         + "\n"
     ).encode("utf-8")
+
+    if output.exists():
+        if output.is_dir():
+            shutil.rmtree(output)
+        else:
+            output.unlink()
+    output.mkdir(parents=True)
     (output / "db.json").write_bytes(encoded)
 
     with zipfile.ZipFile(
@@ -341,7 +388,6 @@ def write_bundle(database: dict[str, Any], output: Path) -> None:
     ) as archive:
         archive.writestr("db.json", encoded)
 
-    db_id = str(database["db_id"])
     db_url = str(database["db_url"])
     sanitized_id = re.sub(r"[^A-Za-z0-9._-]+", "_", db_id).strip("._-")
     if not sanitized_id:
@@ -359,6 +405,7 @@ def write_bundle(database: dict[str, Any], output: Path) -> None:
         archive.writestr(ini_name, ini_contents)
 
     print(f"Generated {db_id} in {output}", flush=True)
+    return True
 
 
 def validate_database(database: dict[str, Any]) -> None:

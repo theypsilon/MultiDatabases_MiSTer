@@ -1,6 +1,6 @@
 # Sonic Mania MiSTer database
 
-- Database ID: `MultiDatabases_MiSTer/sonic-mania`
+- Database ID: `MultiDatabases/sonic-mania`
 - Upstream:
   [`kimchiman52/sonic-mania-mister`](https://github.com/kimchiman52/sonic-mania-mister)
 - Database URL:
@@ -13,15 +13,8 @@ excluded.
 
 The real `Data.rsdk` game data is not included. `MiSTer.ini` is not modified.
 
-Add this section to `downloader.ini`:
+## Installation
 
-```ini
-[MultiDatabases_MiSTer/sonic-mania]
-db_url = https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/sonic-mania/db.json.zip
-```
-
-Generate only this database with:
-
-```bash
-python3 sonic-mania/generate_db.py
-```
+Download
+[`downloader_MultiDatabases_sonic-mania.zip`](https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/sonic-mania/downloader_MultiDatabases_sonic-mania.zip),
+extract it to `/media/fat` on the MiSTer SD card, and run the MiSTer updaters.

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+"""Validate every generated database bundle."""
+
 from __future__ import annotations
 
 import argparse
@@ -7,16 +9,17 @@ import json
 import zipfile
 from pathlib import Path
 
-from db_helpers import validate_database
-from generate_all import FOLDERS
+from db_helpers import DB_NAMESPACE, validate_database
+from generate_all import ROOT, discover_folders
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate generated DB bundles")
     parser.add_argument("directory", nargs="?", type=Path, default=Path("dist"))
     args = parser.parse_args()
+    folders = discover_folders(ROOT, exclude=(args.directory,))
 
-    for folder in FOLDERS:
+    for folder in folders:
         bundle = args.directory / folder
         json_path = bundle / "db.json"
         zip_path = bundle / "db.json.zip"
@@ -26,7 +29,7 @@ def main() -> int:
         encoded = json_path.read_bytes()
         database = json.loads(encoded)
         validate_database(database)
-        if database["db_id"] != f"MultiDatabases_MiSTer/{folder}":
+        if database["db_id"] != f"{DB_NAMESPACE}/{folder}":
             raise RuntimeError(f"Unexpected db_id for {folder}: {database['db_id']}")
 
         with zipfile.ZipFile(zip_path) as archive:
@@ -51,4 +54,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -1,6 +1,6 @@
 # MiSTer Duke3D database
 
-- Database ID: `MultiDatabases_MiSTer/duke3d`
+- Database ID: `MultiDatabases/duke3d`
 - Upstream: [`neofreno/Mister_Duke3d`](https://github.com/neofreno/Mister_Duke3d)
 - Database URL:
   `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/duke3d/db.json.zip`
@@ -11,15 +11,8 @@ and other files published in that ZIP.
 
 `DUKE3D.GRP` is not included. `MiSTer.ini` is not modified.
 
-Add this section to `downloader.ini`:
+## Installation
 
-```ini
-[MultiDatabases_MiSTer/duke3d]
-db_url = https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/duke3d/db.json.zip
-```
-
-Generate only this database with:
-
-```bash
-python3 duke3d/generate_db.py
-```
+Download
+[`downloader_MultiDatabases_duke3d.zip`](https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/duke3d/downloader_MultiDatabases_duke3d.zip),
+extract it to `/media/fat` on the MiSTer SD card, and run the MiSTer updaters.

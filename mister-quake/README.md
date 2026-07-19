@@ -1,6 +1,6 @@
 # MiSTer Quake database
 
-- Database ID: `MultiDatabases_MiSTer/mister-quake`
+- Database ID: `MultiDatabases/mister-quake`
 - Upstream: [`neofreno/Mister_Quake`](https://github.com/neofreno/Mister_Quake)
 - Database URL:
   `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/mister-quake/db.json.zip`
@@ -11,15 +11,8 @@ and other files published in that ZIP.
 
 `PAK0.PAK` and `PAK1.PAK` are not included. `MiSTer.ini` is not modified.
 
-Add this section to `downloader.ini`:
+## Installation
 
-```ini
-[MultiDatabases_MiSTer/mister-quake]
-db_url = https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/mister-quake/db.json.zip
-```
-
-Generate only this database with:
-
-```bash
-python3 mister-quake/generate_db.py
-```
+Download
+[`downloader_MultiDatabases_mister-quake.zip`](https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/mister-quake/downloader_MultiDatabases_mister-quake.zip),
+extract it to `/media/fat` on the MiSTer SD card, and run the MiSTer updaters.

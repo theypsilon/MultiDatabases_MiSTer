@@ -1,6 +1,7 @@
 name: Build custom databases
 
 on:
+  push:
   workflow_dispatch:
   schedule:
     - cron: "*/20 * * * *"
@@ -20,13 +21,49 @@ jobs:
       - name: Check out source branch
         uses: actions/checkout@v6
 
+      - name: Test database tooling
+        run: python3 -m unittest discover -s .github -p "test_*.py"
+
+      - name: Restore previously published databases
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          entries=(*/)
+          mkdir -p dist
+
+          if ! git ls-remote --exit-code --heads origin refs/heads/db > /dev/null; then
+            exit 0
+          fi
+
+          db_ref="refs/remotes/origin/db"
+          git fetch --depth=1 origin "+refs/heads/db:$db_ref"
+          for entry_path in "${entries[@]}"; do
+            entry="${entry_path%/}"
+            if git cat-file -e "$db_ref:$entry/db.json"; then
+              git archive "$db_ref" -- "$entry" | tar -x -C dist
+            fi
+          done
+
       - name: Generate every database
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 scripts/generate_all.py --output dist --repository "$GITHUB_REPOSITORY"
+        run: python3 .github/generate_all.py --output dist --repository "$GITHUB_REPOSITORY"
 
       - name: Validate generated bundles
-        run: python3 scripts/validate_bundles.py dist
+        run: python3 .github/validate_bundles.py dist
+
+      - name: Download MiSTer Downloader integration tester
+        run: >
+          curl --fail --location
+          --output "$RUNNER_TEMP/downloader_test.py"
+          https://github.com/MiSTer-devel/Downloader_MiSTer/releases/download/latest/downloader_test.py
+
+      - name: Test generated databases with MiSTer Downloader
+        run: >
+          python3 .github/run_downloader_tests.py
+          "$RUNNER_TEMP/downloader_test.py"
+          dist
 
       - name: Publish orphan db branch
         shell: bash
@@ -42,8 +79,6 @@ jobs:
           git checkout --orphan db
           git rm -rf .
           cp -a "$publish_dir"/. .
-          touch .nojekyll
           git add .
           git commit -m "Generate databases"
           git push --force origin db
-

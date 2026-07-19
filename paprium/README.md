@@ -1,6 +1,6 @@
 # Paprium MegaDrive database
 
-- Database ID: `MultiDatabases_MiSTer/paprium`
+- Database ID: `MultiDatabases/paprium`
 - Upstream:
   [`MisterPezz82/Paprium_MegaDrive_MiSTer`](https://github.com/MisterPezz82/Paprium_MegaDrive_MiSTer)
 - Database URL:
@@ -15,15 +15,8 @@ The launcher is maintained in this folder and served from the repository's
 
 Paprium ROM/WAV data is not included.
 
-Add this section to `downloader.ini`:
+## Installation
 
-```ini
-[MultiDatabases_MiSTer/paprium]
-db_url = https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/paprium/db.json.zip
-```
-
-Generate only this database with:
-
-```bash
-python3 paprium/generate_db.py
-```
+Download
+[`downloader_MultiDatabases_paprium.zip`](https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/paprium/downloader_MultiDatabases_paprium.zip),
+extract it to `/media/fat` on the MiSTer SD card, and run the MiSTer updaters.

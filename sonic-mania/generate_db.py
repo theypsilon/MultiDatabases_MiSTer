@@ -7,9 +7,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / ".github"))
 
-from scripts.db_helpers import (  # noqa: E402
+from db_helpers import (  # noqa: E402
     build_selective_archive_database,
     first_zip_asset,
     generation_timestamp,
@@ -90,4 +90,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
