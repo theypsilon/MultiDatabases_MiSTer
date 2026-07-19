@@ -15,22 +15,3 @@ outside the databases.
 | [`paprium`](paprium/) | `MultiDatabases/paprium` | [`MisterPezz82/Paprium_MegaDrive_MiSTer`](https://github.com/MisterPezz82/Paprium_MegaDrive_MiSTer) |
 
 Open a database folder above for its installation instructions.
-
-## Published files
-
-GitHub Actions publishes the database files to the orphan `db` branch using
-this layout:
-
-```text
-<folder>/
-  db.json
-  db.json.zip
-  downloader_MultiDatabases_<folder>.ini
-  downloader_MultiDatabases_<folder>.zip
-```
-
-For example, DreamSTer is published at:
-
-```text
-https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/dreamster/db.json.zip
-```
