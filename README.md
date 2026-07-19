@@ -8,11 +8,11 @@ outside the databases.
 
 | Folder | Database ID | Upstream |
 | --- | --- | --- |
-| [`dreamster`](dreamster/) | `MultiDatabases/dreamster` | `skmp/DreamSTer` |
-| [`duke3d`](duke3d/) | `MultiDatabases/duke3d` | `neofreno/Mister_Duke3d` |
-| [`mister-quake`](mister-quake/) | `MultiDatabases/mister-quake` | `neofreno/Mister_Quake` |
-| [`sonic-mania`](sonic-mania/) | `MultiDatabases/sonic-mania` | `kimchiman52/sonic-mania-mister` |
-| [`paprium`](paprium/) | `MultiDatabases/paprium` | `MisterPezz82/Paprium_MegaDrive_MiSTer` |
+| [`dreamster`](dreamster/) | `MultiDatabases/dreamster` | [`skmp/DreamSTer`](https://github.com/skmp/DreamSTer) |
+| [`duke3d`](duke3d/) | `MultiDatabases/duke3d` | [`neofreno/Mister_Duke3d`](https://github.com/neofreno/Mister_Duke3d) |
+| [`mister-quake`](mister-quake/) | `MultiDatabases/mister-quake` | [`neofreno/Mister_Quake`](https://github.com/neofreno/Mister_Quake) |
+| [`sonic-mania`](sonic-mania/) | `MultiDatabases/sonic-mania` | [`kimchiman52/sonic-mania-mister`](https://github.com/kimchiman52/sonic-mania-mister) |
+| [`paprium`](paprium/) | `MultiDatabases/paprium` | [`MisterPezz82/Paprium_MegaDrive_MiSTer`](https://github.com/MisterPezz82/Paprium_MegaDrive_MiSTer) |
 
 Open a database folder above for its installation instructions.
 

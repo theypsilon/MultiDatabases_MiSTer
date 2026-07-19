@@ -16,6 +16,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
 
     steps:
       - name: Check out source branch
@@ -70,15 +72,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          publish_dir="$RUNNER_TEMP/MultiDatabases_MiSTer-db"
-          mkdir -p "$publish_dir"
-          cp -a dist/. "$publish_dir/"
-
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git checkout --orphan db
-          git rm -rf .
-          cp -a "$publish_dir"/. .
-          git add .
-          git commit -m "Generate databases"
-          git push --force origin db
+
+          publish_worktree="$RUNNER_TEMP/MultiDatabases_MiSTer-db"
+          git worktree add --detach "$publish_worktree"
+          trap 'git worktree remove --force "$publish_worktree" > /dev/null 2>&1 || true' EXIT
+
+          git -C "$publish_worktree" checkout --orphan db
+          git -C "$publish_worktree" rm -rf .
+          cp -a dist/. "$publish_worktree"/
+          git -C "$publish_worktree" add .
+          git -C "$publish_worktree" commit -m "Generate databases"
+          git -C "$publish_worktree" push --force origin db
