@@ -1,0 +1,49 @@
+name: Build custom databases
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/20 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: multi-databases-publish
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source branch
+        uses: actions/checkout@v6
+
+      - name: Generate every database
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/generate_all.py --output dist --repository "$GITHUB_REPOSITORY"
+
+      - name: Validate generated bundles
+        run: python3 scripts/validate_bundles.py dist
+
+      - name: Publish orphan db branch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          publish_dir="$RUNNER_TEMP/MultiDatabases_MiSTer-db"
+          mkdir -p "$publish_dir"
+          cp -a dist/. "$publish_dir/"
+
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout --orphan db
+          git rm -rf .
+          cp -a "$publish_dir"/. .
+          touch .nojekyll
+          git add .
+          git commit -m "Generate databases"
+          git push --force origin db
+
