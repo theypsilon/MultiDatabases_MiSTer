@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import io
 import json
 import os
@@ -13,19 +14,26 @@ import posixpath
 import re
 import shutil
 import subprocess
+import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from types import ModuleType
+from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 
 DB_NAMESPACE = "MultiDatabases"
 DEFAULT_REPOSITORY = "theypsilon/MultiDatabases_MiSTer"
 USER_AGENT = "MultiDatabases-MiSTer/1"
+DB_OPERATOR_REPOSITORY = "MiSTer-devel/Distribution_MiSTer"
+DB_OPERATOR_REVISION = "main"
+DB_OPERATOR_REPOSITORY_PATH = ".github/db_operator.py"
 
 INVALID_EXACT_PATHS = {
     "mister",
@@ -204,6 +212,60 @@ def github_commit_sha(repository: str, revision: str) -> str:
     return sha
 
 
+def prepare_db_operator() -> Path:
+    configured_path = os.getenv("DB_OPERATOR_PATH", "").strip()
+    if configured_path:
+        path = Path(configured_path).resolve()
+        if not path.is_file():
+            raise RuntimeError(f"DB_OPERATOR_PATH does not exist: {path}")
+        return path
+
+    revision = github_commit_sha(DB_OPERATOR_REPOSITORY, DB_OPERATOR_REVISION)
+    path = (
+        Path(tempfile.gettempdir())
+        / f"distribution_db_operator_{revision}.py"
+    )
+    if path.is_file():
+        return path
+
+    url = github_raw_url(
+        DB_OPERATOR_REPOSITORY,
+        revision,
+        DB_OPERATOR_REPOSITORY_PATH,
+    )
+    source = http_get_bytes(url, accept="text/plain")
+    if b"class Tags:" not in source or b"initial_filter_aliases" not in source:
+        raise RuntimeError(f"Downloaded file is not a compatible db_operator: {url}")
+
+    temporary_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary_path.write_bytes(source)
+    temporary_path.replace(path)
+    print(f"Using Distribution db_operator.py at {revision}", flush=True)
+    return path
+
+
+def load_db_operator(path: Path | None = None) -> ModuleType:
+    operator_path = prepare_db_operator() if path is None else path.resolve()
+    module_name = f"_multidatabases_db_operator_{operator_path.stem}"
+    spec = importlib.util.spec_from_file_location(module_name, operator_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load db_operator: {operator_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(module_name, None)
+        raise
+
+    if not hasattr(module, "Tags") or not hasattr(
+        module, "initial_filter_aliases"
+    ):
+        raise RuntimeError(f"Incompatible db_operator: {operator_path}")
+    return module
+
+
 def matching_release_asset(
     release: dict[str, Any],
     pattern: re.Pattern[str],
@@ -295,6 +357,8 @@ def build_selective_archive_database(
     archive_data: bytes,
     selected_files: Sequence[tuple[str, ArchiveMember]],
     description: str,
+    filter_terms: Sequence[str],
+    tag_aliases: Sequence[Sequence[str]] = (),
     extra_folders: Iterable[str] = (),
 ) -> dict[str, Any]:
     archive_id = "release"
@@ -346,6 +410,15 @@ def build_selective_archive_database(
             }
         },
     }
+    apply_standard_tags(
+        database,
+        file_data={
+            normalize_install_path(destination): member.data
+            for destination, member in selected_files
+        },
+        filter_terms=filter_terms,
+        tag_aliases=tag_aliases,
+    )
     validate_database(database)
     return database
 
@@ -356,6 +429,8 @@ def build_direct_database(
     repository: str,
     timestamp: int,
     direct_files: Sequence[DirectFile],
+    filter_terms: Sequence[str],
+    tag_aliases: Sequence[Sequence[str]] = (),
     extra_folders: Iterable[str] = (),
 ) -> dict[str, Any]:
     files: dict[str, dict[str, Any]] = {}
@@ -388,8 +463,103 @@ def build_direct_database(
         "folders": {path: {} for path in sorted(all_folders)},
         "tag_dictionary": {},
     }
+    apply_standard_tags(
+        database,
+        file_data={
+            normalize_install_path(item.path): item.data
+            for item in direct_files
+        },
+        filter_terms=filter_terms,
+        tag_aliases=tag_aliases,
+    )
     validate_database(database)
     return database
+
+
+def apply_standard_tags(
+    database: dict[str, Any],
+    *,
+    file_data: Mapping[str, bytes],
+    filter_terms: Sequence[str],
+    tag_aliases: Sequence[Sequence[str]] = (),
+    operator_module: ModuleType | None = None,
+) -> None:
+    if not filter_terms:
+        raise RuntimeError(f"{database.get('db_id', 'Database')} needs filter terms")
+
+    operator = load_db_operator() if operator_module is None else operator_module
+    metadata = {
+        "home": {},
+        "aliases": [list(alias_group) for alias_group in tag_aliases],
+    }
+    tags = operator.Tags(metadata, True)
+    tags.init_aliases(operator.initial_filter_aliases)
+
+    file_descriptions: list[tuple[str, dict[str, Any]]] = list(
+        sorted(database["files"].items())
+    )
+    folder_descriptions: list[tuple[str, dict[str, Any]]] = list(
+        sorted(database["folders"].items())
+    )
+    for archive_id in sorted(database.get("archives", {})):
+        summary = database["archives"][archive_id]["summary_inline"]
+        file_descriptions.extend(sorted(summary["files"].items()))
+        folder_descriptions.extend(sorted(summary["folders"].items()))
+
+    described_paths = {path for path, _ in file_descriptions}
+    missing_data = described_paths.difference(file_data)
+    if missing_data:
+        raise RuntimeError(
+            "Missing source data for tagged files: "
+            + ", ".join(sorted(missing_data))
+        )
+
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        source_root = Path(temporary_directory)
+        for path in sorted(described_paths):
+            target = source_root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if _db_operator_reads_file(path):
+                target.write_bytes(file_data[path])
+            else:
+                target.touch()
+
+        with working_directory(source_root):
+            for path, description in file_descriptions:
+                file_tags = tags.get_tags_for_file(Path(path))
+                for term in filter_terms:
+                    tag = tags._use_term(term)
+                    if tag not in file_tags:
+                        file_tags.append(tag)
+                description["tags"] = sorted(file_tags)
+
+            for path, description in folder_descriptions:
+                folder_tags = tags.get_tags_for_folder(Path(path))
+                for term in filter_terms:
+                    tag = tags._use_term(term)
+                    if tag not in folder_tags:
+                        folder_tags.append(tag)
+                description["tags"] = sorted(folder_tags)
+
+    database["tag_dictionary"] = dict(sorted(tags.get_dictionary().items()))
+
+
+def _db_operator_reads_file(path: str) -> bool:
+    install_path = Path(path)
+    return (
+        install_path.suffix.lower() in {".mgl", ".mra"}
+        or install_path.parts[0].lstrip("_").lower() == "wallpapers"
+    )
+
+
+@contextmanager
+def working_directory(path: Path) -> Iterator[None]:
+    previous = Path.cwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(previous)
 
 
 def databases_have_same_content(
@@ -472,7 +642,14 @@ def write_bundle(database: dict[str, Any], output: Path) -> bool:
 
 
 def validate_database(database: dict[str, Any]) -> None:
-    required = {"v", "db_id", "timestamp", "files", "folders"}
+    required = {
+        "v",
+        "db_id",
+        "timestamp",
+        "files",
+        "folders",
+        "tag_dictionary",
+    }
     missing = required.difference(database)
     if missing:
         raise RuntimeError(f"Database is missing fields: {sorted(missing)}")
@@ -486,36 +663,77 @@ def validate_database(database: dict[str, Any]) -> None:
         raise RuntimeError("Database files must be an object")
     if not isinstance(database["folders"], dict):
         raise RuntimeError("Database folders must be an object")
+    tag_dictionary = database["tag_dictionary"]
+    if not isinstance(tag_dictionary, dict):
+        raise RuntimeError("Database tag_dictionary must be an object")
+    for term, index in tag_dictionary.items():
+        if not isinstance(term, str) or not term:
+            raise RuntimeError("Tag dictionary terms must be non-empty strings")
+        if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+            raise RuntimeError(f"Tag dictionary index for {term} must be non-negative")
+    valid_tag_indexes = set(tag_dictionary.values())
 
     for path, description in database["files"].items():
         validate_install_path(path)
-        validate_file_description(description, require_url=True)
-    for path in database["folders"]:
+        validate_file_description(
+            description,
+            require_url=True,
+            valid_tag_indexes=valid_tag_indexes,
+            require_tags=True,
+        )
+    for path, description in database["folders"].items():
         validate_install_path(path)
+        validate_description_tags(
+            description,
+            valid_tag_indexes=valid_tag_indexes,
+            context=path,
+            require_tags=True,
+        )
 
     for archive_id, archive in database.get("archives", {}).items():
         if archive.get("format") != "zip":
             raise RuntimeError(f"Archive {archive_id} must use ZIP")
         if archive.get("extract") not in {"all", "selective"}:
             raise RuntimeError(f"Archive {archive_id} has an invalid extraction mode")
-        validate_file_description(archive.get("archive_file"), require_url=True)
+        validate_file_description(
+            archive.get("archive_file"),
+            require_url=True,
+            valid_tag_indexes=valid_tag_indexes,
+        )
         summary = archive.get("summary_inline")
         if not isinstance(summary, dict):
             raise RuntimeError(f"Archive {archive_id} needs summary_inline")
         for path, description in summary.get("files", {}).items():
             validate_install_path(path)
-            validate_file_description(description, require_url=False)
+            validate_file_description(
+                description,
+                require_url=False,
+                valid_tag_indexes=valid_tag_indexes,
+                require_tags=True,
+            )
             if description.get("arc_id") != archive_id:
                 raise RuntimeError(f"{path} has the wrong arc_id")
             if not isinstance(description.get("arc_at"), str):
                 raise RuntimeError(f"{path} needs an arc_at")
         for path, description in summary.get("folders", {}).items():
             validate_install_path(path)
+            validate_description_tags(
+                description,
+                valid_tag_indexes=valid_tag_indexes,
+                context=path,
+                require_tags=True,
+            )
             if description.get("arc_id") != archive_id:
                 raise RuntimeError(f"{path} has the wrong folder arc_id")
 
 
-def validate_file_description(value: Any, *, require_url: bool) -> None:
+def validate_file_description(
+    value: Any,
+    *,
+    require_url: bool,
+    valid_tag_indexes: set[int],
+    require_tags: bool = False,
+) -> None:
     if not isinstance(value, dict):
         raise RuntimeError("File description must be an object")
     if not isinstance(value.get("hash"), str) or not MD5_RE.fullmatch(value["hash"]):
@@ -527,6 +745,33 @@ def validate_file_description(value: Any, *, require_url: bool) -> None:
         if not isinstance(url, str):
             raise RuntimeError("File description needs an HTTPS URL")
         validate_payload_url(url)
+    validate_description_tags(
+        value,
+        valid_tag_indexes=valid_tag_indexes,
+        context="File description",
+        require_tags=require_tags,
+    )
+
+
+def validate_description_tags(
+    value: Any,
+    *,
+    valid_tag_indexes: set[int],
+    context: str,
+    require_tags: bool,
+) -> None:
+    if not isinstance(value, dict):
+        raise RuntimeError(f"{context} description must be an object")
+    tags = value.get("tags")
+    if tags is None and not require_tags:
+        return
+    if not isinstance(tags, list) or (require_tags and not tags):
+        raise RuntimeError(f"{context} needs a non-empty tags list")
+    for tag in tags:
+        if not isinstance(tag, int) or isinstance(tag, bool):
+            raise RuntimeError(f"{context} tag references must be integer indexes")
+        if tag not in valid_tag_indexes:
+            raise RuntimeError(f"{context} references unknown tag index {tag}")
 
 
 def validate_payload_url(url: str) -> None:

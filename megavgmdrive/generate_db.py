@@ -47,6 +47,8 @@ def main() -> int:
         folder=FOLDER,
         repository=args.repository,
         timestamp=generation_timestamp(args.timestamp),
+        filter_terms=(FOLDER, "console", "megadrive"),
+        tag_aliases=((FOLDER, "vgm-md-mister"),),
         direct_files=(
             DirectFile(
                 path="_Custom Cores/Cores/VGM_MD_MiSTer.rbf",

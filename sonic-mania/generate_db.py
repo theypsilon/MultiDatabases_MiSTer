@@ -82,6 +82,7 @@ def main() -> int:
         archive_data=archive_data,
         selected_files=selected,
         description=f"Installing Sonic Mania MiSTer {tag}",
+        filter_terms=(FOLDER, "other"),
         extra_folders=("games/sonic-mania",),
     )
     write_bundle(database, args.output)

@@ -58,6 +58,7 @@ def main() -> int:
         archive_data=archive_data,
         selected_files=selected,
         description=f"Installing MiSTer Duke3D {version}",
+        filter_terms=(FOLDER, "other"),
     )
     write_bundle(database, args.output)
     return 0

@@ -48,6 +48,8 @@ def main() -> int:
         folder=FOLDER,
         repository=args.repository,
         timestamp=generation_timestamp(args.timestamp),
+        filter_terms=(FOLDER, "console", "megadrive"),
+        tag_aliases=((FOLDER, "papriummd", "megadrive-paprium"),),
         direct_files=(
             DirectFile(
                 path=f"_Custom Cores/Cores/{filename}",

@@ -58,6 +58,8 @@ def main() -> int:
         archive_data=archive_data,
         selected_files=selected,
         description=f"Installing MiSTer Quake {version}",
+        filter_terms=(FOLDER, "other"),
+        tag_aliases=((FOLDER, "quake"),),
     )
     write_bundle(database, args.output)
     return 0

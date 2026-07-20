@@ -82,6 +82,8 @@ def main() -> int:
         folder=FOLDER,
         repository=args.repository,
         timestamp=generation_timestamp(args.timestamp),
+        filter_terms=(FOLDER, "console", "gb", "gbc"),
+        tag_aliases=((FOLDER, "mms2"),),
         direct_files=(
             DirectFile(
                 path=f"MMS2/{filename}",

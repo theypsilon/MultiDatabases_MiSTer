@@ -80,6 +80,7 @@ def main() -> int:
         archive_data=archive_data,
         selected_files=[(member.path, member) for member in members],
         description=f"Installing DreamSTer {tag}",
+        filter_terms=(FOLDER, "console", "dreamcast"),
         extra_folders=("games/Dreamcast",),
     )
     write_bundle(database, args.output)

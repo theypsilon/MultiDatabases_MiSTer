@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 from typing import Iterable
 
+from db_helpers import prepare_db_operator
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -39,6 +41,8 @@ def main() -> int:
     parser.add_argument("--timestamp", type=int, default=int(time.time()))
     args = parser.parse_args()
     folders = discover_folders(ROOT, exclude=(args.output,))
+    environment = os.environ.copy()
+    environment["DB_OPERATOR_PATH"] = str(prepare_db_operator())
 
     for folder in folders:
         command = [
@@ -52,7 +56,7 @@ def main() -> int:
             str(args.timestamp),
         ]
         print(f"Generating {folder}...", flush=True)
-        subprocess.run(command, cwd=ROOT, check=True)
+        subprocess.run(command, cwd=ROOT, check=True, env=environment)
 
     print(f"Generated {len(folders)} databases in {args.output}", flush=True)
     return 0

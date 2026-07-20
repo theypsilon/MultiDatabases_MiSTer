@@ -83,6 +83,7 @@ def main() -> int:
         archive_data=archive_data,
         selected_files=selected,
         description=f"Installing 3S-ARM {tag}",
+        filter_terms=(FOLDER, "other"),
         extra_folders=("games/3s-arm/resources",),
     )
     write_bundle(database, args.output)
