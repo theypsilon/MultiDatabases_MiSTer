@@ -6,6 +6,7 @@ import importlib.util
 import unittest
 from pathlib import Path
 from types import ModuleType
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -148,7 +149,7 @@ class PhysicalDiscGeneratorTests(unittest.TestCase):
             repositories,
         )
 
-    def test_requires_exactly_one_release_zip(self) -> None:
+    def test_allows_multiple_release_zips(self) -> None:
         release = {
             "tag_name": "v1",
             "assets": [
@@ -156,8 +157,72 @@ class PhysicalDiscGeneratorTests(unittest.TestCase):
                 {"name": "second.ZIP"},
             ],
         }
-        with self.assertRaisesRegex(RuntimeError, "exactly one ZIP"):
-            self.generator.unique_zip_asset(release, "Anime0t4ku/example")
+        self.assertEqual(
+            tuple(release["assets"]),
+            self.generator.zip_assets(release, "Anime0t4ku/example"),
+        )
+
+    def test_requires_at_least_one_release_zip(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "does not contain a ZIP"):
+            self.generator.zip_assets(
+                {"tag_name": "v1", "assets": [{"name": "core.rbf"}]},
+                "Anime0t4ku/example",
+            )
+
+    def test_selects_the_compatible_zip_from_multiple_assets(self) -> None:
+        root = "_Physical Disc Cores"
+        rbf = self.member(f"{root}/Cores/PSX.rbf")
+        mgl = self.member(
+            f"{root}/PSX Physical Disc.mgl",
+            (
+                b"<mistergamedescription>"
+                b"<rbf>_Physical Disc Cores/Cores/PSX</rbf>"
+                b'<setname same_dir="1">CD-PSX</setname>'
+                b"</mistergamedescription>"
+            ),
+        )
+        release = {
+            "tag_name": "v1",
+            "assets": [
+                {
+                    "name": "documentation.zip",
+                    "browser_download_url": (
+                        "https://github.com/example/project/releases/"
+                        "download/v1/documentation.zip"
+                    ),
+                },
+                {
+                    "name": "PSX.zip",
+                    "browser_download_url": (
+                        "https://github.com/example/project/releases/"
+                        "download/v1/PSX.zip"
+                    ),
+                },
+            ],
+        }
+        with patch.object(
+            self.generator,
+            "github_latest_release",
+            return_value=release,
+        ):
+            with patch.object(
+                self.generator,
+                "http_get_bytes",
+                side_effect=(b"documentation", b"core"),
+            ):
+                with patch.object(
+                    self.generator,
+                    "read_archive_members",
+                    side_effect=(
+                        [self.member("README.md")],
+                        [rbf, mgl],
+                    ),
+                ):
+                    archive = self.generator.release_archive(
+                        "Anime0t4ku/PSX_MiSTer_Physical_Disc"
+                    )
+
+        self.assertTrue(archive.url.endswith("/PSX.zip"))
 
     def test_requires_the_custom_main_repository(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "Main repository is missing"):

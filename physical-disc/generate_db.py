@@ -7,6 +7,7 @@ import re
 import sys
 import urllib.parse
 import xml.etree.ElementTree as ElementTree
+import zipfile
 from pathlib import Path
 from typing import Any, Callable
 
@@ -81,20 +82,21 @@ def discover_repositories(
     return tuple(sorted(matches, key=str.casefold))
 
 
-def unique_zip_asset(release: dict[str, Any], repository: str) -> dict[str, Any]:
+def zip_assets(
+    release: dict[str, Any], repository: str
+) -> tuple[dict[str, Any], ...]:
     assets = [
         asset
         for asset in release.get("assets") or []
         if isinstance(asset, dict)
         and str(asset.get("name") or "").lower().endswith(".zip")
     ]
-    if len(assets) != 1:
+    if not assets:
         tag = release.get("tag_name") or release.get("name") or "unknown"
         raise RuntimeError(
-            f"{repository} release {tag} must contain exactly one ZIP asset; "
-            f"found {len(assets)}"
+            f"{repository} release {tag} does not contain a ZIP asset"
         )
-    return assets[0]
+    return tuple(assets)
 
 
 def archive_id_for(repository_name: str) -> str:
@@ -274,25 +276,45 @@ def core_archive(
 def release_archive(repository: str) -> SelectiveArchive:
     repository_name = repository.rsplit("/", 1)[-1]
     release = github_latest_release(repository)
-    asset = unique_zip_asset(release, repository)
-    archive_url = release_asset_url(asset)
-    archive_data = http_get_bytes(archive_url)
-    members = read_archive_members(archive_data)
+    compatible: list[SelectiveArchive] = []
+    rejected: list[str] = []
 
-    if repository_name == MAIN_REPOSITORY:
-        return main_archive(
-            repository_name,
-            release,
-            archive_url,
-            archive_data,
-            members,
+    for asset in zip_assets(release, repository):
+        name = str(asset.get("name") or "unnamed ZIP")
+        try:
+            archive_url = release_asset_url(asset)
+            archive_data = http_get_bytes(archive_url)
+            members = read_archive_members(archive_data)
+            if repository_name == MAIN_REPOSITORY:
+                archive = main_archive(
+                    repository_name,
+                    release,
+                    archive_url,
+                    archive_data,
+                    members,
+                )
+            else:
+                archive = core_archive(
+                    repository_name,
+                    release,
+                    archive_url,
+                    archive_data,
+                    members,
+                )
+        except (RuntimeError, zipfile.BadZipFile) as exc:
+            rejected.append(f"{name}: {exc}")
+        else:
+            compatible.append(archive)
+
+    if len(compatible) == 1:
+        return compatible[0]
+    if len(compatible) > 1:
+        raise RuntimeError(
+            f"{repository} release contains multiple compatible ZIP assets"
         )
-    return core_archive(
-        repository_name,
-        release,
-        archive_url,
-        archive_data,
-        members,
+    raise RuntimeError(
+        f"{repository} release has no compatible ZIP asset: "
+        + "; ".join(rejected)
     )
 
 

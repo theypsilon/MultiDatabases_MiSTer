@@ -7,17 +7,12 @@
 - Database URL:
   `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/physical-disc/db.json`
 
-This is hybrid FPGA/ARM support: modified FPGA cores handle the consoles while
-a custom MiSTer main performs physical-disc I/O through Linux. On every build,
-the generator discovers every public `Anime0t4ku` repository whose name ends
-in `_Physical_Disc` and follows its latest published GitHub release.
-
-Each matching release must contain exactly one ZIP. The Main repository ZIP
-must contain one root-level executable matching the `[CD-*]` setting in its
-release notes. Every other ZIP must mirror one custom menu folder containing a
-core under `Cores` and an MGL that launches it with a `CD-*` set name. A newly
-discovered repository that violates this layout makes the workflow fail
-instead of publishing a partial database.
+This database installs physical CD core forks and custom firmware. It follows
+the latest published release from every public `Anime0t4ku` repository whose
+name ends in `_Physical_Disc`, selecting the ZIP that matches the expected
+firmware or core-package layout. Other ZIP assets may coexist in the release;
+a repository without one unambiguous compatible package fails validation
+instead of being silently omitted.
 
 ## Installation
 
