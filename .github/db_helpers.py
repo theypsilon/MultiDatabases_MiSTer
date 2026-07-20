@@ -67,6 +67,16 @@ class DirectFile:
     tangles: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class SelectiveArchive:
+    archive_id: str
+    url: str
+    data: bytes
+    selected_files: Sequence[tuple[str, ArchiveMember]]
+    description: str
+    reboot_paths: tuple[str, ...] = ()
+
+
 def generator_parser(folder: str, description: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
@@ -361,61 +371,120 @@ def build_selective_archive_database(
     tag_aliases: Sequence[Sequence[str]] = (),
     extra_folders: Iterable[str] = (),
 ) -> dict[str, Any]:
-    archive_id = "release"
-    summary_files: dict[str, dict[str, Any]] = {}
+    return build_multi_selective_archive_database(
+        folder=folder,
+        repository=repository,
+        timestamp=timestamp,
+        archives=(
+            SelectiveArchive(
+                archive_id="release",
+                url=archive_url,
+                data=archive_data,
+                selected_files=selected_files,
+                description=description,
+            ),
+        ),
+        filter_terms=filter_terms,
+        tag_aliases=tag_aliases,
+        extra_folders=extra_folders,
+    )
 
-    for destination, member in selected_files:
-        destination = normalize_install_path(destination)
-        if destination in summary_files:
-            raise RuntimeError(f"Duplicate destination path: {destination}")
-        summary_files[destination] = {
-            "hash": md5(member.data),
-            "size": len(member.data),
-            "overwrite": True,
-            "arc_id": archive_id,
-            "arc_at": member.archive_path,
+
+def build_multi_selective_archive_database(
+    *,
+    folder: str,
+    repository: str,
+    timestamp: int,
+    archives: Sequence[SelectiveArchive],
+    filter_terms: Sequence[str],
+    tag_aliases: Sequence[Sequence[str]] = (),
+    extra_folders: Iterable[str] = (),
+) -> dict[str, Any]:
+    if not archives:
+        raise RuntimeError(f"No release archives supplied for {folder}")
+
+    archive_descriptions: dict[str, dict[str, Any]] = {}
+    file_data: dict[str, bytes] = {}
+    destination_archives: dict[str, str] = {}
+
+    for archive in archives:
+        archive_id = archive.archive_id
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", archive_id):
+            raise RuntimeError(f"Invalid archive ID: {archive_id}")
+        if archive_id in archive_descriptions:
+            raise RuntimeError(f"Duplicate archive ID: {archive_id}")
+        if not archive.description:
+            raise RuntimeError(f"Archive {archive_id} needs a description")
+
+        reboot_paths = {
+            normalize_install_path(path) for path in archive.reboot_paths
+        }
+        summary_files: dict[str, dict[str, Any]] = {}
+        for destination, member in archive.selected_files:
+            destination = normalize_install_path(destination)
+            if destination in destination_archives:
+                previous = destination_archives[destination]
+                raise RuntimeError(
+                    f"Duplicate destination path {destination} in archives "
+                    f"{previous} and {archive_id}"
+                )
+            destination_archives[destination] = archive_id
+
+            description: dict[str, Any] = {
+                "hash": md5(member.data),
+                "size": len(member.data),
+                "overwrite": True,
+                "arc_id": archive_id,
+                "arc_at": member.archive_path,
+            }
+            if destination in reboot_paths:
+                description["reboot"] = True
+            summary_files[destination] = description
+            file_data[destination] = member.data
+
+        if not summary_files:
+            raise RuntimeError(
+                f"No installable files selected for archive {archive_id}"
+            )
+        missing_reboot_paths = reboot_paths.difference(summary_files)
+        if missing_reboot_paths:
+            raise RuntimeError(
+                f"Archive {archive_id} has unknown reboot paths: "
+                + ", ".join(sorted(missing_reboot_paths))
+            )
+
+        summary_folders = {
+            path: {"arc_id": archive_id}
+            for path in parent_folders(summary_files)
+        }
+        archive_descriptions[archive_id] = {
+            "format": "zip",
+            "extract": "selective",
+            "description": archive.description,
+            "archive_file": {
+                "hash": md5(archive.data),
+                "size": len(archive.data),
+                "url": archive.url,
+            },
+            "summary_inline": {
+                "files": dict(sorted(summary_files.items())),
+                "folders": dict(sorted(summary_folders.items())),
+            },
         }
 
-    if not summary_files:
-        raise RuntimeError(f"No installable files selected for {folder}")
-
-    summary_folders = {
-        path: {"arc_id": archive_id}
-        for path in parent_folders(summary_files)
-    }
-    db_id = database_id(folder)
-    db_url = database_url(repository, folder)
     database = {
         "v": 1,
-        "db_id": db_id,
-        "db_url": db_url,
+        "db_id": database_id(folder),
+        "db_url": database_url(repository, folder),
         "timestamp": timestamp,
         "files": {},
         "folders": {path: {} for path in expanded_folders(extra_folders)},
         "tag_dictionary": {},
-        "archives": {
-            archive_id: {
-                "format": "zip",
-                "extract": "selective",
-                "description": description,
-                "archive_file": {
-                    "hash": md5(archive_data),
-                    "size": len(archive_data),
-                    "url": archive_url,
-                },
-                "summary_inline": {
-                    "files": dict(sorted(summary_files.items())),
-                    "folders": dict(sorted(summary_folders.items())),
-                },
-            }
-        },
+        "archives": dict(sorted(archive_descriptions.items())),
     }
     apply_standard_tags(
         database,
-        file_data={
-            normalize_install_path(destination): member.data
-            for destination, member in selected_files
-        },
+        file_data=file_data,
         filter_terms=filter_terms,
         tag_aliases=tag_aliases,
     )
