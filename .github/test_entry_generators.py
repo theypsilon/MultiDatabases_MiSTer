@@ -56,5 +56,47 @@ class ThreeSArmMappingTests(unittest.TestCase):
         self.assertIsNone(destination_for("release/SF33RD.AFS"))
 
 
+class Mms2GbReleaseTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("mms2-gb")
+
+    def test_selects_newest_dated_rbf(self) -> None:
+        entries = [
+            {
+                "name": "Gameboy_20251023.rbf",
+                "download_url": "https://example.com/Gameboy_20251023.rbf",
+                "type": "file",
+            },
+            {
+                "name": "GameboyColor.mgl",
+                "download_url": "https://example.com/GameboyColor.mgl",
+                "type": "file",
+            },
+            {
+                "name": "Gameboy_20260623.rbf",
+                "download_url": "https://example.com/Gameboy_20260623.rbf",
+                "type": "file",
+            },
+        ]
+
+        self.assertEqual(
+            "Gameboy_20260623.rbf",
+            self.generator.latest_rbf(entries)["name"],
+        )
+
+    def test_rejects_a_listing_without_a_dated_rbf(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "Gameboy_YYYYMMDD"):
+            self.generator.latest_rbf(
+                [
+                    {
+                        "name": "GameboyColor.mgl",
+                        "download_url": "https://example.com/GameboyColor.mgl",
+                        "type": "file",
+                    }
+                ]
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

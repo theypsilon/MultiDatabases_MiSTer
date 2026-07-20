@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Check out source branch
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Test database tooling
         run: python3 -m unittest discover -s .github -p "test_*.py"

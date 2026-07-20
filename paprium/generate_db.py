@@ -14,7 +14,9 @@ from db_helpers import (  # noqa: E402
     build_direct_database,
     generation_timestamp,
     generator_parser,
+    git_file_revision,
     github_latest_release,
+    github_raw_url,
     http_get_bytes,
     matching_release_asset,
     release_asset_url,
@@ -34,9 +36,10 @@ def main() -> int:
     rbf_url = release_asset_url(asset)
     rbf_data = http_get_bytes(rbf_url)
     mgl_path = Path(__file__).with_name("PapriumMD.mgl")
-    mgl_url = (
-        f"https://raw.githubusercontent.com/{args.repository}/"
-        "main/paprium/PapriumMD.mgl"
+    mgl_url = github_raw_url(
+        args.repository,
+        git_file_revision(mgl_path),
+        "paprium/PapriumMD.mgl",
     )
     mgl_data = mgl_path.read_bytes()
     filename = str(asset["name"])

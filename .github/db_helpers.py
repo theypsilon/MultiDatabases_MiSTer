@@ -12,6 +12,7 @@ import os
 import posixpath
 import re
 import shutil
+import subprocess
 import time
 import urllib.error
 import urllib.parse
@@ -39,6 +40,7 @@ INVALID_EXACT_PATHS = {
 }
 INVALID_ROOT_FOLDERS = {"linux", "saves", "savestates", "screenshots", "downloader"}
 MD5_RE = re.compile(r"^[0-9a-f]{32}$")
+GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 @dataclass(frozen=True)
@@ -98,6 +100,52 @@ def database_url(repository: str, folder: str) -> str:
     )
 
 
+def github_raw_url(repository: str, revision: str, path: str) -> str:
+    if repository.count("/") != 1:
+        raise ValueError(f'Expected repository as "owner/name", got: {repository}')
+    if not GIT_COMMIT_RE.fullmatch(revision):
+        raise ValueError(f"Expected a full Git commit SHA, got: {revision}")
+    encoded_path = urllib.parse.quote(path.strip("/"), safe="/")
+    return (
+        f"https://raw.githubusercontent.com/{repository}/"
+        f"{revision}/{encoded_path}"
+    )
+
+
+def git_file_revision(path: Path, *, repository_root: Path | None = None) -> str:
+    root = (
+        Path(__file__).resolve().parents[1]
+        if repository_root is None
+        else repository_root.resolve()
+    )
+    try:
+        relative = path.resolve().relative_to(root).as_posix()
+    except ValueError as exc:
+        raise RuntimeError(f"Asset is outside the repository: {path}") from exc
+
+    status = subprocess.run(
+        ["git", "-C", str(root), "status", "--porcelain", "--", relative],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    if status.stdout.strip():
+        raise RuntimeError(
+            f"Asset must be committed before generating its URL: {relative}"
+        )
+
+    result = subprocess.run(
+        ["git", "-C", str(root), "log", "-1", "--format=%H", "--", relative],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    revision = result.stdout.strip()
+    if not GIT_COMMIT_RE.fullmatch(revision):
+        raise RuntimeError(f"Unable to find a committed revision for {relative}")
+    return revision
+
+
 def http_get_bytes(url: str, *, accept: str = "application/octet-stream") -> bytes:
     headers = {
         "Accept": accept,
@@ -139,6 +187,21 @@ def github_releases(repository: str) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         raise RuntimeError(f"Unexpected releases response for {repository}")
     return [release for release in value if isinstance(release, dict)]
+
+
+def github_commit_sha(repository: str, revision: str) -> str:
+    encoded_revision = urllib.parse.quote(revision, safe="")
+    value = github_json(
+        f"https://api.github.com/repos/{repository}/commits/{encoded_revision}"
+    )
+    if not isinstance(value, dict):
+        raise RuntimeError(f"Unexpected commit response for {repository}")
+    sha = str(value.get("sha") or "")
+    if not GIT_COMMIT_RE.fullmatch(sha):
+        raise RuntimeError(
+            f"Unable to resolve {repository} revision {revision} to a commit"
+        )
+    return sha
 
 
 def matching_release_asset(
@@ -461,8 +524,40 @@ def validate_file_description(value: Any, *, require_url: bool) -> None:
         raise RuntimeError("File description needs a non-negative size")
     if require_url:
         url = value.get("url")
-        if not isinstance(url, str) or not url.startswith(("http://", "https://")):
-            raise RuntimeError("File description needs an HTTP(S) URL")
+        if not isinstance(url, str):
+            raise RuntimeError("File description needs an HTTPS URL")
+        validate_payload_url(url)
+
+
+def validate_payload_url(url: str) -> None:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise RuntimeError(f"Payload URL must use HTTPS: {url}")
+    if parsed.query or parsed.fragment:
+        raise RuntimeError(f"Payload URL must not use a query or fragment: {url}")
+
+    parts = [urllib.parse.unquote(part) for part in parsed.path.split("/") if part]
+    if parsed.hostname == "raw.githubusercontent.com":
+        if len(parts) < 4 or not GIT_COMMIT_RE.fullmatch(parts[2]):
+            raise RuntimeError(
+                f"Raw GitHub payload URL must use a full commit SHA: {url}"
+            )
+        return
+
+    if parsed.hostname == "github.com":
+        if (
+            len(parts) < 6
+            or parts[2:4] != ["releases", "download"]
+            or parts[4].lower() == "latest"
+        ):
+            raise RuntimeError(
+                f"GitHub payload URL must identify a concrete release: {url}"
+            )
+        return
+
+    raise RuntimeError(
+        f"Payload URL must use a concrete GitHub release or commit: {url}"
+    )
 
 
 def normalize_install_path(path: str) -> str:

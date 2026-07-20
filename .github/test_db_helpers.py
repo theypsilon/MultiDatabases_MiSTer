@@ -7,7 +7,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from db_helpers import database_id, database_url, write_bundle
+from db_helpers import (
+    database_id,
+    database_url,
+    github_raw_url,
+    validate_payload_url,
+    write_bundle,
+)
 
 
 def database(folder: str, timestamp: int, *, changed: bool = False) -> dict:
@@ -68,6 +74,30 @@ class WriteBundleTests(unittest.TestCase):
             self.assertEqual(
                 200, json.loads((duke3d / "db.json").read_bytes())["timestamp"]
             )
+
+
+class PayloadUrlTests(unittest.TestCase):
+    def test_accepts_concrete_release_and_commit_urls(self) -> None:
+        validate_payload_url(
+            "https://github.com/example/project/releases/download/v1.2/file.zip"
+        )
+        validate_payload_url(
+            github_raw_url(
+                "example/project",
+                "0123456789abcdef0123456789abcdef01234567",
+                "folder/file name.mgl",
+            )
+        )
+
+    def test_rejects_moving_branch_and_latest_urls(self) -> None:
+        for url in (
+            "https://raw.githubusercontent.com/example/project/main/file.rbf",
+            "https://raw.githubusercontent.com/example/project/master/file.rbf",
+            "https://github.com/example/project/releases/download/latest/file.zip",
+        ):
+            with self.subTest(url=url):
+                with self.assertRaisesRegex(RuntimeError, "commit|concrete"):
+                    validate_payload_url(url)
 
 
 if __name__ == "__main__":
