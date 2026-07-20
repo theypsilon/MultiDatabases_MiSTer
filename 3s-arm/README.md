@@ -7,7 +7,8 @@
 - Database URL:
   `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/3s-arm/db.json`
 
-The generator follows the latest GitHub release ZIP and selectively maps its
+3S-ARM is a hybrid FPGA/ARM port rather than a standalone FPGA core. The
+generator follows the latest GitHub release ZIP and selectively maps its
 launcher, `_Other` files, and `games/3s-arm` runtime into their MiSTer
 locations. The upstream README and any bundled `SF33RD.AFS` game data are
 excluded.

@@ -6,9 +6,10 @@
 - Database URL:
   `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/dreamster/db.json`
 
-The generator follows the newest published DreamSTer release containing a
-DreamSTer ZIP, including releases marked as pre-release. It installs the
-upstream `Scripts/DreamSTer.sh` and `minicast` runtime and creates
+DreamSTer is a hybrid FPGA/ARM Dreamcast emulator rather than a standalone
+FPGA core. The generator follows the newest published DreamSTer release
+containing a DreamSTer ZIP, including releases marked as pre-release. It
+installs the upstream `Scripts/DreamSTer.sh` and `minicast` runtime and creates
 `games/Dreamcast`.
 
 ## Installation

@@ -6,6 +6,7 @@
 - Database URL:
   `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/duke3d/db.json`
 
+MiSTer Duke3D is a hybrid FPGA/ARM port rather than a standalone FPGA core.
 The generator follows the latest GitHub release asset named
 `Mister_duke3d_YYYYMMDD.zip`. It installs the launcher, RBF, runtime, libraries,
 and other files published in that ZIP.

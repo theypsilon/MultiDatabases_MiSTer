@@ -7,8 +7,9 @@
 - Database URL:
   `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/sonic-mania/db.json`
 
-The generator follows the latest GitHub release ZIP and selectively maps its
-launcher, `_Other` files, and `games/sonic-mania` runtime into their MiSTer
+Sonic Mania MiSTer is a hybrid FPGA/ARM port rather than a standalone FPGA
+core. The generator follows the latest GitHub release ZIP and selectively maps
+its launcher, `_Other` files, and `games/sonic-mania` runtime into their MiSTer
 locations. README/license files and any bundled `Data.rsdk` placeholder are
 excluded.
 
