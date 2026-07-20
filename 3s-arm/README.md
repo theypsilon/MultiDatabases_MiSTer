@@ -1,6 +1,7 @@
 # 3S-ARM database
 
-- Database ID: `MultiDatabases/3s-arm`
+- Database ID:
+  [`MultiDatabases/3s-arm`](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2F3s-arm%2Fdb.json)
 - Upstream:
   [`kimchiman52/3s-mister-arm`](https://github.com/kimchiman52/3s-mister-arm)
 - Database URL:

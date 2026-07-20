@@ -1,6 +1,7 @@
 # MiSTer Duke3D database
 
-- Database ID: `MultiDatabases/duke3d`
+- Database ID:
+  [`MultiDatabases/duke3d`](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fduke3d%2Fdb.json)
 - Upstream: [`neofreno/Mister_Duke3d`](https://github.com/neofreno/Mister_Duke3d)
 - Database URL:
   `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/duke3d/db.json`

@@ -1,6 +1,7 @@
 # MiSTer Quake database
 
-- Database ID: `MultiDatabases/mister-quake`
+- Database ID:
+  [`MultiDatabases/mister-quake`](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fmister-quake%2Fdb.json)
 - Upstream: [`neofreno/Mister_Quake`](https://github.com/neofreno/Mister_Quake)
 - Database URL:
   `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/mister-quake/db.json`

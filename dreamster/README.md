@@ -1,6 +1,7 @@
 # DreamSTer database
 
-- Database ID: `MultiDatabases/dreamster`
+- Database ID:
+  [`MultiDatabases/dreamster`](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fdreamster%2Fdb.json)
 - Upstream: [`skmp/DreamSTer`](https://github.com/skmp/DreamSTer)
 - Database URL:
   `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/dreamster/db.json`

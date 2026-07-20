@@ -1,6 +1,7 @@
 # MegaVGMDrive database
 
-- Database ID: `MultiDatabases/megavgmdrive`
+- Database ID:
+  [`MultiDatabases/megavgmdrive`](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fmegavgmdrive%2Fdb.json)
 - Upstream:
   [`dai-VGM/MegaVGMDrive`](https://github.com/dai-VGM/MegaVGMDrive)
 - Database URL:

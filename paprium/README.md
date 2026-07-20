@@ -1,6 +1,7 @@
 # Paprium MegaDrive database
 
-- Database ID: `MultiDatabases/paprium`
+- Database ID:
+  [`MultiDatabases/paprium`](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fpaprium%2Fdb.json)
 - Upstream:
   [`MisterPezz82/Paprium_MegaDrive_MiSTer`](https://github.com/MisterPezz82/Paprium_MegaDrive_MiSTer)
 - Database URL:

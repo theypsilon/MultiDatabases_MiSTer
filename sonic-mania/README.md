@@ -1,6 +1,7 @@
 # Sonic Mania MiSTer database
 
-- Database ID: `MultiDatabases/sonic-mania`
+- Database ID:
+  [`MultiDatabases/sonic-mania`](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fsonic-mania%2Fdb.json)
 - Upstream:
   [`kimchiman52/sonic-mania-mister`](https://github.com/kimchiman52/sonic-mania-mister)
 - Database URL:
