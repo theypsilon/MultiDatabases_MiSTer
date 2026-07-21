@@ -5,11 +5,10 @@ from __future__ import annotations
 import posixpath
 import re
 import sys
-import urllib.parse
 import xml.etree.ElementTree as ElementTree
 import zipfile
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".github"))
@@ -20,7 +19,6 @@ from db_helpers import (  # noqa: E402
     build_multi_selective_archive_database,
     generation_timestamp,
     generator_parser,
-    github_json,
     github_latest_release,
     http_get_bytes,
     read_archive_members,
@@ -31,55 +29,8 @@ from db_helpers import (  # noqa: E402
 
 FOLDER = "physical-disc"
 UPSTREAM_OWNER = "Anime0t4ku"
-REPOSITORY_SUFFIX = "_Physical_Disc"
 MAIN_REPOSITORY = "Main_MiSTer_Physical_Disc"
-
-
-def discover_repositories(
-    owner: str = UPSTREAM_OWNER,
-    *,
-    fetch_json: Callable[[str], Any] | None = None,
-) -> tuple[str, ...]:
-    fetch = github_json if fetch_json is None else fetch_json
-    matches: set[str] = set()
-
-    for page in range(1, 101):
-        encoded_owner = urllib.parse.quote(owner, safe="")
-        response = fetch(
-            f"https://api.github.com/users/{encoded_owner}/repos"
-            f"?type=owner&sort=full_name&direction=asc&per_page=100&page={page}"
-        )
-        if not isinstance(response, list):
-            raise RuntimeError(f"Unexpected repository response for {owner}")
-
-        for repository in response:
-            if not isinstance(repository, dict):
-                continue
-            name = str(repository.get("name") or "")
-            full_name = str(repository.get("full_name") or "")
-            if name.endswith(REPOSITORY_SUFFIX):
-                expected_full_name = f"{owner}/{name}"
-                if full_name != expected_full_name:
-                    raise RuntimeError(
-                        f"Unexpected owner for matching repository {full_name}"
-                    )
-                matches.add(full_name)
-
-        if len(response) < 100:
-            break
-    else:
-        raise RuntimeError(f"Repository pagination did not terminate for {owner}")
-
-    if not matches:
-        raise RuntimeError(
-            f"No {owner} repositories end in {REPOSITORY_SUFFIX}"
-        )
-    required_main = f"{owner}/{MAIN_REPOSITORY}"
-    if required_main not in matches:
-        raise RuntimeError(
-            f"Required physical-disc Main repository is missing: {required_main}"
-        )
-    return tuple(sorted(matches, key=str.casefold))
+ARCHIVE_ID = "physical-cd"
 
 
 def zip_assets(
@@ -97,20 +48,6 @@ def zip_assets(
             f"{repository} release {tag} does not contain a ZIP asset"
         )
     return tuple(assets)
-
-
-def archive_id_for(repository_name: str) -> str:
-    if not repository_name.endswith(REPOSITORY_SUFFIX):
-        raise RuntimeError(
-            f"Repository does not end in {REPOSITORY_SUFFIX}: {repository_name}"
-        )
-    stem = repository_name[: -len(REPOSITORY_SUFFIX)]
-    if stem.lower().endswith("_mister"):
-        stem = stem[:-7]
-    archive_id = re.sub(r"[^a-z0-9]+", "-", stem.lower()).strip("-")
-    if not archive_id:
-        raise RuntimeError(f"Unable to derive archive ID from {repository_name}")
-    return archive_id
 
 
 def main_setting_from_release_body(body: str) -> str:
@@ -138,44 +75,6 @@ def main_setting_from_release_body(body: str) -> str:
     return settings[0]
 
 
-def main_archive(
-    repository_name: str,
-    release: dict[str, Any],
-    archive_url: str,
-    archive_data: bytes,
-    members: list[ArchiveMember],
-) -> SelectiveArchive:
-    if len(members) != 1 or "/" in members[0].path:
-        raise RuntimeError(
-            f"{repository_name} ZIP must contain one root-level MiSTer executable"
-        )
-
-    member = members[0]
-    if not member.path.startswith("MiSTer_"):
-        raise RuntimeError(
-            f"{repository_name} ZIP file is not a named MiSTer executable: "
-            f"{member.path}"
-        )
-    configured_main = main_setting_from_release_body(
-        str(release.get("body") or "")
-    )
-    if configured_main != member.path:
-        raise RuntimeError(
-            f"{repository_name} release notes select {configured_main}, "
-            f"but the ZIP contains {member.path}"
-        )
-
-    tag = str(release.get("tag_name") or release.get("name") or "unknown")
-    return SelectiveArchive(
-        archive_id=archive_id_for(repository_name),
-        url=archive_url,
-        data=archive_data,
-        selected_files=((member.path, member),),
-        description=f"Installing {repository_name} {tag}",
-        reboot_paths=(member.path,),
-    )
-
-
 def _xml_elements(root: ElementTree.Element, name: str) -> list[ElementTree.Element]:
     return [
         element
@@ -184,11 +83,8 @@ def _xml_elements(root: ElementTree.Element, name: str) -> list[ElementTree.Elem
     ]
 
 
-def validate_core_launcher(
-    repository_name: str,
-    rbf: ArchiveMember,
-    mgl: ArchiveMember,
-) -> None:
+def launcher_rbf_target(repository_name: str, mgl: ArchiveMember) -> str:
+    """Validate an MGL and return the RBF path (without extension) it launches."""
     try:
         root = ElementTree.fromstring(mgl.data.decode("utf-8-sig"))
     except (UnicodeDecodeError, ElementTree.ParseError) as exc:
@@ -199,16 +95,7 @@ def validate_core_launcher(
     rbf_elements = _xml_elements(root, "rbf")
     if len(rbf_elements) != 1 or not (rbf_elements[0].text or "").strip():
         raise RuntimeError(
-            f"{repository_name} MGL must contain exactly one RBF path"
-        )
-    launcher_rbf = posixpath.normpath(
-        (rbf_elements[0].text or "").strip().replace("\\", "/").strip("/")
-    )
-    expected_rbf = posixpath.splitext(rbf.path)[0]
-    if launcher_rbf.casefold() != expected_rbf.casefold():
-        raise RuntimeError(
-            f"{repository_name} MGL selects {launcher_rbf}, "
-            f"but the ZIP contains {expected_rbf}.rbf"
+            f"{repository_name} MGL must contain exactly one RBF path: {mgl.path}"
         )
 
     setname_elements = _xml_elements(root, "setname")
@@ -218,58 +105,112 @@ def validate_core_launcher(
         or not (setname_elements[0].text or "").strip().upper().startswith("CD-")
     ):
         raise RuntimeError(
-            f"{repository_name} MGL must use a CD-* setname with same_dir=\"1\""
+            f"{repository_name} MGL must use a CD-* setname with "
+            f'same_dir="1": {mgl.path}'
         )
 
+    return posixpath.normpath(
+        (rbf_elements[0].text or "").strip().replace("\\", "/").strip("/")
+    )
 
-def core_archive(
+
+def main_archive(
     repository_name: str,
     release: dict[str, Any],
     archive_url: str,
     archive_data: bytes,
     members: list[ArchiveMember],
 ) -> SelectiveArchive:
-    rbfs = [member for member in members if member.path.lower().endswith(".rbf")]
-    mgls = [member for member in members if member.path.lower().endswith(".mgl")]
-    if len(rbfs) != 1 or len(mgls) != 1:
+    executables = [
+        member
+        for member in members
+        if "/" not in member.path and member.path.startswith("MiSTer_")
+    ]
+    if len(executables) != 1:
         raise RuntimeError(
-            f"{repository_name} ZIP must contain exactly one RBF and one MGL"
+            f"{repository_name} ZIP must contain one root-level MiSTer executable"
+        )
+    executable = executables[0]
+    configured_main = main_setting_from_release_body(
+        str(release.get("body") or "")
+    )
+    if configured_main != executable.path:
+        raise RuntimeError(
+            f"{repository_name} release notes select {configured_main}, "
+            f"but the ZIP contains {executable.path}"
         )
 
-    rbf = rbfs[0]
-    mgl = mgls[0]
+    mgls = [member for member in members if member.path.lower().endswith(".mgl")]
+    rbfs = [member for member in members if member.path.lower().endswith(".rbf")]
+    if not mgls:
+        raise RuntimeError(
+            f"{repository_name} ZIP must contain at least one MGL launcher"
+        )
+
+    launcher_members = (*mgls, *rbfs)
     roots = {
         member.path.split("/", 1)[0]
-        for member in members
+        for member in launcher_members
         if "/" in member.path
     }
-    if len(roots) != 1 or any("/" not in member.path for member in members):
+    if len(roots) != 1 or any("/" not in member.path for member in launcher_members):
         raise RuntimeError(
-            f"{repository_name} ZIP files must share one custom root folder"
+            f"{repository_name} launchers and cores must share one custom root"
         )
     custom_root = next(iter(roots))
     if not custom_root.startswith("_"):
         raise RuntimeError(
             f"{repository_name} ZIP root is not a custom menu folder: {custom_root}"
         )
-    if posixpath.dirname(rbf.path) != f"{custom_root}/Cores":
+
+    cores_folder = f"{custom_root}/Cores"
+    for mgl in mgls:
+        if posixpath.dirname(mgl.path) != custom_root:
+            raise RuntimeError(
+                f"{repository_name} MGL must be directly inside {custom_root}: "
+                f"{mgl.path}"
+            )
+    for rbf in rbfs:
+        if posixpath.dirname(rbf.path) != cores_folder:
+            raise RuntimeError(
+                f"{repository_name} bundled core must be inside {cores_folder}: "
+                f"{rbf.path}"
+            )
+
+    bundled_cores = {rbf.path.casefold(): rbf for rbf in rbfs}
+    launched_cores: set[str] = set()
+    for mgl in mgls:
+        target = launcher_rbf_target(repository_name, mgl)
+        bundled_key = f"{target}.rbf".casefold()
+        if bundled_key in bundled_cores:
+            launched_cores.add(bundled_key)
+        elif target.casefold().startswith(f"{custom_root}/".casefold()):
+            # Points inside the custom folder yet no such core ships in the ZIP.
+            raise RuntimeError(
+                f"{repository_name} MGL selects a bundled core missing from the "
+                f"ZIP: {target}.rbf ({mgl.path})"
+            )
+        # Otherwise the MGL launches an official stable core supplied by the
+        # standard MiSTer distribution; it is intentionally not bundled here.
+
+    orphan_cores = sorted(
+        bundled_cores[key].path for key in set(bundled_cores) - launched_cores
+    )
+    if orphan_cores:
         raise RuntimeError(
-            f"{repository_name} RBF must be inside {custom_root}/Cores"
-        )
-    if posixpath.dirname(mgl.path) != custom_root:
-        raise RuntimeError(
-            f"{repository_name} MGL must be directly inside {custom_root}"
+            f"{repository_name} bundles cores that no MGL launches: "
+            + ", ".join(orphan_cores)
         )
 
-    validate_core_launcher(repository_name, rbf, mgl)
+    selected = (executable, *sorted(mgls + rbfs, key=lambda member: member.path))
     tag = str(release.get("tag_name") or release.get("name") or "unknown")
     return SelectiveArchive(
-        archive_id=archive_id_for(repository_name),
+        archive_id=ARCHIVE_ID,
         url=archive_url,
         data=archive_data,
-        selected_files=tuple((member.path, member) for member in members),
+        selected_files=tuple((member.path, member) for member in selected),
         description=f"Installing {repository_name} {tag}",
-        reboot_paths=(rbf.path,),
+        reboot_paths=(executable.path,),
     )
 
 
@@ -285,22 +226,13 @@ def release_archive(repository: str) -> SelectiveArchive:
             archive_url = release_asset_url(asset)
             archive_data = http_get_bytes(archive_url)
             members = read_archive_members(archive_data)
-            if repository_name == MAIN_REPOSITORY:
-                archive = main_archive(
-                    repository_name,
-                    release,
-                    archive_url,
-                    archive_data,
-                    members,
-                )
-            else:
-                archive = core_archive(
-                    repository_name,
-                    release,
-                    archive_url,
-                    archive_data,
-                    members,
-                )
+            archive = main_archive(
+                repository_name,
+                release,
+                archive_url,
+                archive_data,
+                members,
+            )
         except (RuntimeError, zipfile.BadZipFile) as exc:
             rejected.append(f"{name}: {exc}")
         else:
@@ -320,20 +252,17 @@ def release_archive(repository: str) -> SelectiveArchive:
 
 def main() -> int:
     args = generator_parser(
-        FOLDER, "Generate the dynamically discovered physical-disc database"
+        FOLDER, "Generate the physical-disc database"
     ).parse_args()
-    repositories = discover_repositories()
-    print(
-        "Physical-disc repositories: " + ", ".join(repositories),
-        flush=True,
-    )
-    archives = tuple(release_archive(repository) for repository in repositories)
+    repository = f"{UPSTREAM_OWNER}/{MAIN_REPOSITORY}"
+    print(f"Physical-disc repository: {repository}", flush=True)
+    archive = release_archive(repository)
 
     database = build_multi_selective_archive_database(
         folder=FOLDER,
         repository=args.repository,
         timestamp=generation_timestamp(args.timestamp),
-        archives=archives,
+        archives=(archive,),
         filter_terms=(FOLDER, "console"),
         tag_aliases=((FOLDER, "physical-cd"),),
     )

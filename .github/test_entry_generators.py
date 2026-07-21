@@ -104,6 +104,9 @@ class PhysicalDiscGeneratorTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.generator = load_generator("physical-disc")
 
+    ROOT_FOLDER = "_Physical Disc Cores"
+    MAIN_BODY = "```ini\n[CD-*]\nmain=MiSTer_Physical-CD\n```\n"
+
     def member(self, path: str, data: bytes = b"data"):
         return self.generator.ArchiveMember(
             archive_path=path,
@@ -111,42 +114,40 @@ class PhysicalDiscGeneratorTests(unittest.TestCase):
             data=data,
         )
 
-    def test_discovers_every_matching_repository_across_pages(self) -> None:
-        first_page = [
-            {
-                "name": f"Unrelated_{index}",
-                "full_name": f"Anime0t4ku/Unrelated_{index}",
-            }
-            for index in range(99)
-        ]
-        first_page.append(
-            {
-                "name": "PSX_MiSTer_Physical_Disc",
-                "full_name": "Anime0t4ku/PSX_MiSTer_Physical_Disc",
-            }
-        )
-        second_page = [
-            {
-                "name": "Main_MiSTer_Physical_Disc",
-                "full_name": "Anime0t4ku/Main_MiSTer_Physical_Disc",
-            },
-            {
-                "name": "Almost_Physical_Disc_old",
-                "full_name": "Anime0t4ku/Almost_Physical_Disc_old",
-            },
-        ]
-        pages = iter((first_page, second_page))
-
-        repositories = self.generator.discover_repositories(
-            fetch_json=lambda _url: next(pages)
-        )
-
-        self.assertEqual(
+    def mgl(self, rbf: str, setname: str, same_dir: str = "1"):
+        attribute = f' same_dir="{same_dir}"' if same_dir is not None else ""
+        return self.member(
+            f"{self.ROOT_FOLDER}/{setname}.mgl",
             (
-                "Anime0t4ku/Main_MiSTer_Physical_Disc",
-                "Anime0t4ku/PSX_MiSTer_Physical_Disc",
+                "<mistergamedescription>"
+                f"<rbf>{rbf}</rbf>"
+                f"<setname{attribute}>{setname}</setname>"
+                "</mistergamedescription>"
+            ).encode("utf-8"),
+        )
+
+    def bundle_members(self):
+        # Most launchers point at official stable cores that ship with the
+        # standard MiSTer distribution; CD-i is the exception whose forked core
+        # is bundled inside the ZIP.
+        return [
+            self.member("MiSTer_Physical-CD"),
+            self.mgl("_Console/PSX", "CD-PSX"),
+            self.mgl("_Console/MegaCD", "CD-MegaCD"),
+            self.mgl(f"{self.ROOT_FOLDER}/Cores/CDi", "CD-CDi"),
+            self.member(f"{self.ROOT_FOLDER}/Cores/CDi.rbf"),
+        ]
+
+    def build_main(self, members):
+        return self.generator.main_archive(
+            "Main_MiSTer_Physical_Disc",
+            {"tag_name": "v0.30", "body": self.MAIN_BODY},
+            (
+                "https://github.com/Anime0t4ku/Main_MiSTer_Physical_Disc/"
+                "releases/download/v0.30/MiSTer_Physical-CD.zip"
             ),
-            repositories,
+            b"zip",
+            members,
         )
 
     def test_allows_multiple_release_zips(self) -> None:
@@ -169,33 +170,35 @@ class PhysicalDiscGeneratorTests(unittest.TestCase):
                 "Anime0t4ku/example",
             )
 
+    def test_bundles_main_launchers_and_forked_core(self) -> None:
+        members = self.bundle_members()
+        archive = self.build_main(members)
+
+        self.assertEqual(self.generator.ARCHIVE_ID, archive.archive_id)
+        self.assertEqual(("MiSTer_Physical-CD",), archive.reboot_paths)
+        destinations = [destination for destination, _ in archive.selected_files]
+        # Every packaged file installs: the main, all MGLs, and the CD-i core.
+        self.assertEqual(sorted(member.path for member in members), sorted(destinations))
+        self.assertIn(f"{self.ROOT_FOLDER}/Cores/CDi.rbf", destinations)
+        self.assertIn(f"{self.ROOT_FOLDER}/CD-PSX.mgl", destinations)
+
     def test_selects_the_compatible_zip_from_multiple_assets(self) -> None:
-        root = "_Physical Disc Cores"
-        rbf = self.member(f"{root}/Cores/PSX.rbf")
-        mgl = self.member(
-            f"{root}/PSX Physical Disc.mgl",
-            (
-                b"<mistergamedescription>"
-                b"<rbf>_Physical Disc Cores/Cores/PSX</rbf>"
-                b'<setname same_dir="1">CD-PSX</setname>'
-                b"</mistergamedescription>"
-            ),
-        )
         release = {
-            "tag_name": "v1",
+            "tag_name": "v0.30",
+            "body": self.MAIN_BODY,
             "assets": [
                 {
                     "name": "documentation.zip",
                     "browser_download_url": (
                         "https://github.com/example/project/releases/"
-                        "download/v1/documentation.zip"
+                        "download/v0.30/documentation.zip"
                     ),
                 },
                 {
-                    "name": "PSX.zip",
+                    "name": "MiSTer_Physical-CD.zip",
                     "browser_download_url": (
                         "https://github.com/example/project/releases/"
-                        "download/v1/PSX.zip"
+                        "download/v0.30/MiSTer_Physical-CD.zip"
                     ),
                 },
             ],
@@ -208,119 +211,51 @@ class PhysicalDiscGeneratorTests(unittest.TestCase):
             with patch.object(
                 self.generator,
                 "http_get_bytes",
-                side_effect=(b"documentation", b"core"),
+                side_effect=(b"documentation", b"bundle"),
             ):
                 with patch.object(
                     self.generator,
                     "read_archive_members",
                     side_effect=(
                         [self.member("README.md")],
-                        [rbf, mgl],
+                        self.bundle_members(),
                     ),
                 ):
                     archive = self.generator.release_archive(
-                        "Anime0t4ku/PSX_MiSTer_Physical_Disc"
+                        "Anime0t4ku/Main_MiSTer_Physical_Disc"
                     )
 
-        self.assertTrue(archive.url.endswith("/PSX.zip"))
-
-    def test_requires_the_custom_main_repository(self) -> None:
-        with self.assertRaisesRegex(RuntimeError, "Main repository is missing"):
-            self.generator.discover_repositories(
-                fetch_json=lambda _url: [
-                    {
-                        "name": "PSX_MiSTer_Physical_Disc",
-                        "full_name": "Anime0t4ku/PSX_MiSTer_Physical_Disc",
-                    }
-                ]
-            )
-
-    def test_validates_main_zip_against_release_ini_instructions(self) -> None:
-        member = self.member("MiSTer_Physical-CD")
-        archive = self.generator.main_archive(
-            "Main_MiSTer_Physical_Disc",
-            {
-                "tag_name": "v0.8",
-                "body": (
-                    "Add this to MiSTer.ini:\n\n"
-                    "```ini\n[CD-*]\nmain=MiSTer_Physical-CD\n```\n"
-                ),
-            },
-            (
-                "https://github.com/Anime0t4ku/Main_MiSTer_Physical_Disc/"
-                "releases/download/v0.8/MiSTer_Physical-CD.zip"
-            ),
-            b"zip",
-            [member],
-        )
-
-        self.assertEqual("main", archive.archive_id)
-        self.assertEqual((("MiSTer_Physical-CD", member),), archive.selected_files)
-        self.assertEqual(("MiSTer_Physical-CD",), archive.reboot_paths)
+        self.assertTrue(archive.url.endswith("/MiSTer_Physical-CD.zip"))
 
     def test_rejects_main_zip_that_differs_from_release_instructions(self) -> None:
+        members = [self.member("MiSTer_Different"), self.mgl("_Console/PSX", "CD-PSX")]
         with self.assertRaisesRegex(RuntimeError, "but the ZIP contains"):
-            self.generator.main_archive(
-                "Main_MiSTer_Physical_Disc",
-                {
-                    "tag_name": "v1",
-                    "body": "[CD-*]\nmain=MiSTer_Physical-CD",
-                },
-                "https://github.com/example/releases/download/v1/main.zip",
-                b"zip",
-                [self.member("MiSTer_Different")],
-            )
+            self.build_main(members)
 
-    def test_mirrors_valid_core_zip_and_checks_mgl_target(self) -> None:
-        root = "_Physical Disc Cores"
-        rbf = self.member(f"{root}/Cores/PSX.rbf")
-        mgl = self.member(
-            f"{root}/PSX Physical Disc.mgl",
-            (
-                b"<mistergamedescription>"
-                b"<rbf>_Physical Disc Cores/Cores/PSX</rbf>"
-                b'<setname same_dir="1">CD-PSX</setname>'
-                b"</mistergamedescription>"
-            ),
-        )
-        archive = self.generator.core_archive(
-            "PSX_MiSTer_Physical_Disc",
-            {"tag_name": "v1.0.0"},
-            (
-                "https://github.com/Anime0t4ku/PSX_MiSTer_Physical_Disc/"
-                "releases/download/v1.0.0/PSX.zip"
-            ),
-            b"zip",
-            [rbf, mgl],
-        )
+    def test_rejects_mgl_that_selects_a_missing_bundled_core(self) -> None:
+        members = [
+            self.member("MiSTer_Physical-CD"),
+            self.mgl(f"{self.ROOT_FOLDER}/Cores/CDi", "CD-CDi"),
+        ]
+        with self.assertRaisesRegex(RuntimeError, "missing from the"):
+            self.build_main(members)
 
-        self.assertEqual("psx", archive.archive_id)
-        self.assertEqual(
-            ((rbf.path, rbf), (mgl.path, mgl)),
-            archive.selected_files,
-        )
-        self.assertEqual((rbf.path,), archive.reboot_paths)
+    def test_rejects_bundled_core_that_no_mgl_launches(self) -> None:
+        members = [
+            self.member("MiSTer_Physical-CD"),
+            self.mgl("_Console/PSX", "CD-PSX"),
+            self.member(f"{self.ROOT_FOLDER}/Cores/CDi.rbf"),
+        ]
+        with self.assertRaisesRegex(RuntimeError, "no MGL launches"):
+            self.build_main(members)
 
-    def test_rejects_core_zip_with_mismatched_mgl(self) -> None:
-        root = "_Physical Disc Cores"
-        rbf = self.member(f"{root}/Cores/PSX.rbf")
-        mgl = self.member(
-            f"{root}/PSX Physical Disc.mgl",
-            (
-                b"<mistergamedescription>"
-                b"<rbf>_Physical Disc Cores/Cores/Other</rbf>"
-                b'<setname same_dir="1">CD-PSX</setname>'
-                b"</mistergamedescription>"
-            ),
-        )
-        with self.assertRaisesRegex(RuntimeError, "MGL selects"):
-            self.generator.core_archive(
-                "PSX_MiSTer_Physical_Disc",
-                {"tag_name": "v1"},
-                "https://github.com/example/releases/download/v1/PSX.zip",
-                b"zip",
-                [rbf, mgl],
-            )
+    def test_rejects_mgl_without_cd_setname(self) -> None:
+        members = [
+            self.member("MiSTer_Physical-CD"),
+            self.mgl("_Console/PSX", "PSX"),
+        ]
+        with self.assertRaisesRegex(RuntimeError, r"CD-\* setname"):
+            self.build_main(members)
 
 
 if __name__ == "__main__":
