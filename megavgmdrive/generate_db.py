@@ -26,7 +26,7 @@ from db_helpers import (  # noqa: E402
 
 FOLDER = "megavgmdrive"
 UPSTREAM = "dai-VGM/MegaVGMDrive"
-ASSET_PATTERN = re.compile(r"\.rbf$", re.IGNORECASE)
+ASSET_PATTERN = re.compile(r".*\.rbf", re.IGNORECASE)
 
 
 def main() -> int:
