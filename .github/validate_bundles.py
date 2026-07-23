@@ -21,6 +21,11 @@ def main() -> int:
 
     for folder in folders:
         bundle = args.directory / folder
+        if not bundle.is_dir():
+            # Its generator failed and it never published a database before.
+            print(f"Skipping {folder}: nothing to publish", flush=True)
+            continue
+
         json_path = bundle / "db.json"
         zip_path = bundle / "db.json.zip"
         if not json_path.is_file() or not zip_path.is_file():

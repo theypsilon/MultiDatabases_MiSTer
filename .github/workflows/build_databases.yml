@@ -74,6 +74,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if ! compgen -G "dist/*/db.json" > /dev/null; then
+            echo "No database survived this build; leaving the db branch alone"
+            exit 0
+          fi
+
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
 
@@ -87,3 +92,15 @@ jobs:
           git -C "$publish_worktree" add .
           git -C "$publish_worktree" commit -m "Generate databases"
           git -C "$publish_worktree" push --force origin db
+
+      - name: Report databases that could not be updated
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -s .build/failures.txt ]; then
+            echo "These databases could not be updated:"
+            cat .build/failures.txt
+            exit 1
+          fi

@@ -20,7 +20,9 @@ def run_downloader_tests(tester: Path, directory: Path, *, root: Path = ROOT) ->
     for folder in folders:
         database = (directory / folder / "db.json").resolve()
         if not database.is_file():
-            raise RuntimeError(f"Missing database output for {folder}: {database}")
+            # Its generator failed and it never published a database before.
+            print(f"Skipping {folder}: nothing to publish", flush=True)
+            continue
 
         db_id = f"{DB_NAMESPACE}/{folder}"
         print(f"Testing {db_id} with MiSTer Downloader...", flush=True)
