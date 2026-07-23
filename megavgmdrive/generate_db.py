@@ -26,7 +26,7 @@ from db_helpers import (  # noqa: E402
 
 FOLDER = "megavgmdrive"
 UPSTREAM = "dai-VGM/MegaVGMDrive"
-ASSET_PATTERN = re.compile(r"VGM_MD_MiSTer\.rbf", re.IGNORECASE)
+ASSET_PATTERN = re.compile(r"\.rbf$", re.IGNORECASE)
 
 
 def main() -> int:
@@ -51,7 +51,7 @@ def main() -> int:
         tag_aliases=((FOLDER, "vgm-md-mister"),),
         direct_files=(
             DirectFile(
-                path="_Custom Cores/Cores/VGM_MD_MiSTer.rbf",
+                path="_Custom Cores/Cores/MegaVGMdrive_MiSTer.rbf",
                 url=rbf_url,
                 data=rbf_data,
                 reboot=True,
