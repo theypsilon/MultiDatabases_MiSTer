@@ -488,6 +488,7 @@ def build_multi_selective_archive_database(
         filter_terms=filter_terms,
         tag_aliases=tag_aliases,
     )
+    strip_spurious_reboot_flags(database)
     validate_database(database)
     return database
 
@@ -541,6 +542,7 @@ def build_direct_database(
         filter_terms=filter_terms,
         tag_aliases=tag_aliases,
     )
+    strip_spurious_reboot_flags(database)
     validate_database(database)
     return database
 
@@ -708,6 +710,28 @@ def write_bundle(database: dict[str, Any], output: Path) -> bool:
 
     print(f"Generated {db_id} in {output}", flush=True)
     return True
+
+
+def strip_spurious_reboot_flags(database: dict[str, Any]) -> None:
+    def clean(files: Any) -> None:
+        if not isinstance(files, dict):
+            return
+        for path, description in files.items():
+            name = posixpath.basename(path).lower()
+            if (
+                isinstance(description, dict)
+                and description.get("reboot")
+                and name.startswith("mister")
+                and name != "mister"
+            ):
+                del description["reboot"]
+
+    clean(database.get("files"))
+    for archive in (database.get("archives") or {}).values():
+        if isinstance(archive, dict) and isinstance(
+            archive.get("summary_inline"), dict
+        ):
+            clean(archive["summary_inline"].get("files"))
 
 
 def validate_database(database: dict[str, Any]) -> None:

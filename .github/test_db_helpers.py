@@ -13,6 +13,7 @@ from db_helpers import (
     database_id,
     database_url,
     github_raw_url,
+    strip_spurious_reboot_flags,
     validate_database,
     validate_payload_url,
     write_bundle,
@@ -77,6 +78,82 @@ class WriteBundleTests(unittest.TestCase):
             self.assertEqual(
                 200, json.loads((duke3d / "db.json").read_bytes())["timestamp"]
             )
+
+
+class RebootFlagTests(unittest.TestCase):
+    def file(self, *, reboot: bool = True) -> dict:
+        description = {
+            "hash": "0123456789abcdef0123456789abcdef",
+            "size": 1,
+            "url": (
+                "https://github.com/example/project/releases/download/v1/file"
+            ),
+            "tags": [0],
+        }
+        if reboot:
+            description["reboot"] = True
+        return description
+
+    def database_with(self, files: dict) -> dict:
+        value = database("example", 1)
+        value["files"] = files
+        value["tag_dictionary"] = {"example": 0}
+        return value
+
+    def test_strips_reboot_from_mister_prefixed_names(self) -> None:
+        value = self.database_with(
+            {
+                "MiSTer_Physical-CD": self.file(),
+                "sub/misterFOO.bin": self.file(),
+                "cores/Some.rbf": self.file(),
+            }
+        )
+        strip_spurious_reboot_flags(value)
+
+        self.assertNotIn("reboot", value["files"]["MiSTer_Physical-CD"])
+        self.assertNotIn("reboot", value["files"]["sub/misterFOO.bin"])
+        self.assertTrue(value["files"]["cores/Some.rbf"]["reboot"])
+        validate_database(value)
+
+    def test_strips_reboot_inside_selective_archive_summaries(self) -> None:
+        value = database("example", 1)
+        value["tag_dictionary"] = {"example": 0}
+        value["archives"] = {
+            "release": {
+                "format": "zip",
+                "extract": "selective",
+                "archive_file": {
+                    "hash": "0123456789abcdef0123456789abcdef",
+                    "size": 1,
+                    "url": (
+                        "https://github.com/example/project/releases/"
+                        "download/v1/release.zip"
+                    ),
+                },
+                "summary_inline": {
+                    "files": {
+                        "MiSTer_Physical-CD": {
+                            "hash": "0123456789abcdef0123456789abcdef",
+                            "size": 1,
+                            "overwrite": True,
+                            "reboot": True,
+                            "arc_id": "release",
+                            "arc_at": "MiSTer_Physical-CD",
+                            "tags": [0],
+                        }
+                    },
+                    "folders": {},
+                },
+            }
+        }
+
+        strip_spurious_reboot_flags(value)
+
+        summary_file = value["archives"]["release"]["summary_inline"]["files"][
+            "MiSTer_Physical-CD"
+        ]
+        self.assertNotIn("reboot", summary_file)
+        validate_database(value)
 
 
 class PayloadUrlTests(unittest.TestCase):
