@@ -3,3 +3,6 @@ __pycache__/
 .venv/
 dist/
 .build/
+
+AGENTS.md
+CLAUDE.md
