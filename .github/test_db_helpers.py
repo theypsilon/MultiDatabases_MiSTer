@@ -156,6 +156,37 @@ class RebootFlagTests(unittest.TestCase):
         validate_database(value)
 
 
+class DatabaseUrlTests(unittest.TestCase):
+    REPOSITORY = "theypsilon/MultiDatabases_MiSTer"
+    BASE = "https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db"
+
+    def test_serves_the_uncompressed_database_by_default(self) -> None:
+        self.assertEqual(
+            f"{self.BASE}/dreamster/db.json",
+            database_url(self.REPOSITORY, "dreamster"),
+        )
+
+    def test_serves_the_zipped_database_when_the_entry_asks_for_it(self) -> None:
+        self.assertEqual(
+            f"{self.BASE}/misterfin/db.json.zip",
+            database_url(self.REPOSITORY, "misterfin", compressed=True),
+        )
+
+    def test_the_drop_in_ini_follows_the_chosen_url(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "misterfin"
+            value = database("misterfin", 100)
+            value["db_url"] = database_url(
+                self.REPOSITORY, "misterfin", compressed=True
+            )
+            write_bundle(value, output)
+
+            ini = (output / "downloader_MultiDatabases_misterfin.ini").read_text(
+                encoding="utf-8"
+            )
+        self.assertIn(f"db_url = {self.BASE}/misterfin/db.json.zip", ini)
+
+
 class PayloadUrlTests(unittest.TestCase):
     def test_accepts_concrete_release_and_commit_urls(self) -> None:
         validate_payload_url(

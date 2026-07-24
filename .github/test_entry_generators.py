@@ -180,6 +180,10 @@ class MisterFinGeneratorTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "misterfin/mplayer-arm"):
             self.generator.selected_files(members)
 
+    def test_pins_the_zipped_database_url(self) -> None:
+        source = (ROOT / "misterfin" / "generate_db.py").read_text(encoding="utf-8")
+        self.assertIn("compressed_db_url=True", source)
+
     def test_asset_pattern_accepts_two_and_three_part_versions(self) -> None:
         pattern = self.generator.ASSET_PATTERN
         self.assertEqual("v0.9", pattern.fullmatch("misterfin-v0.9.zip").group(1))

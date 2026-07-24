@@ -1,11 +1,16 @@
 # MiSTerFin database
 
 - Database ID:
-  [`MultiDatabases/misterfin`](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fmisterfin%2Fdb.json)
+  [`MultiDatabases/misterfin`](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fmisterfin%2Fdb.json.zip)
 - Upstream:
   [`puddingstudio/MiSTerFin`](https://github.com/puddingstudio/MiSTerFin)
 - Database URL:
-  `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/misterfin/db.json`
+  `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/misterfin/db.json.zip`
+
+This entry serves the compressed database: one JSON entry per bundled asset
+makes it far larger than the rest, and the ZIP is around a sixth of the size.
+The uncompressed `db.json` is still published next to it, but `db_url` points
+at the ZIP and will not change.
 
 MiSTerFin is a [Jellyfin](https://jellyfin.org) media client for MiSTer. It is
 plain ARM software, not a hybrid FPGA/ARM port and not an FPGA core: it runs

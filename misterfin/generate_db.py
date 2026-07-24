@@ -100,6 +100,8 @@ def main() -> int:
         description=f"Installing MiSTerFin {version}",
         filter_terms=(FOLDER, "utility"),
         tag_aliases=((FOLDER, "jellyfin"),),
+        # One JSON entry per bundled asset: far past the 10 KB threshold.
+        compressed_db_url=True,
     )
     write_bundle(database, args.output)
     return 0

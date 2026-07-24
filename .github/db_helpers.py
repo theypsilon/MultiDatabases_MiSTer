@@ -109,12 +109,13 @@ def database_id(folder: str) -> str:
     return f"{DB_NAMESPACE}/{folder}"
 
 
-def database_url(repository: str, folder: str) -> str:
+def database_url(repository: str, folder: str, *, compressed: bool = False) -> str:
     if repository.count("/") != 1:
         raise ValueError(f'Expected repository as "owner/name", got: {repository}')
+    name = "db.json.zip" if compressed else "db.json"
     return (
         f"https://raw.githubusercontent.com/{repository}/db/"
-        f"{folder}/db.json"
+        f"{folder}/{name}"
     )
 
 
@@ -370,6 +371,7 @@ def build_selective_archive_database(
     filter_terms: Sequence[str],
     tag_aliases: Sequence[Sequence[str]] = (),
     extra_folders: Iterable[str] = (),
+    compressed_db_url: bool = False,
 ) -> dict[str, Any]:
     return build_multi_selective_archive_database(
         folder=folder,
@@ -387,6 +389,7 @@ def build_selective_archive_database(
         filter_terms=filter_terms,
         tag_aliases=tag_aliases,
         extra_folders=extra_folders,
+        compressed_db_url=compressed_db_url,
     )
 
 
@@ -399,6 +402,7 @@ def build_multi_selective_archive_database(
     filter_terms: Sequence[str],
     tag_aliases: Sequence[Sequence[str]] = (),
     extra_folders: Iterable[str] = (),
+    compressed_db_url: bool = False,
 ) -> dict[str, Any]:
     if not archives:
         raise RuntimeError(f"No release archives supplied for {folder}")
@@ -475,7 +479,7 @@ def build_multi_selective_archive_database(
     database = {
         "v": 1,
         "db_id": database_id(folder),
-        "db_url": database_url(repository, folder),
+        "db_url": database_url(repository, folder, compressed=compressed_db_url),
         "timestamp": timestamp,
         "files": {},
         "folders": {path: {} for path in expanded_folders(extra_folders)},
@@ -502,6 +506,7 @@ def build_direct_database(
     filter_terms: Sequence[str],
     tag_aliases: Sequence[Sequence[str]] = (),
     extra_folders: Iterable[str] = (),
+    compressed_db_url: bool = False,
 ) -> dict[str, Any]:
     files: dict[str, dict[str, Any]] = {}
     for item in direct_files:
@@ -523,7 +528,7 @@ def build_direct_database(
     all_folders = set(parent_folders(files))
     all_folders.update(expanded_folders(extra_folders))
     db_id = database_id(folder)
-    db_url = database_url(repository, folder)
+    db_url = database_url(repository, folder, compressed=compressed_db_url)
     database = {
         "v": 1,
         "db_id": db_id,
