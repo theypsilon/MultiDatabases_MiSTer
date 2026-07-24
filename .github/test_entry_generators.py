@@ -99,6 +99,96 @@ class Mms2GbReleaseTests(unittest.TestCase):
             )
 
 
+class MisterFinGeneratorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("misterfin")
+
+    def member(self, path: str):
+        return self.generator.ArchiveMember(
+            archive_path=path,
+            path=path,
+            data=b"data",
+        )
+
+    def release_members(self, *extra: str):
+        return [
+            self.member(path)
+            for path in (
+                "misterfin/MiSTerFin.sh",
+                "misterfin/about.png",
+                "misterfin/font/font.desc",
+                "misterfin/jellyfin.conf.example",
+                "misterfin/misterfin-arm",
+                "misterfin/mplayer-arm",
+                "misterfin/subfont/font.desc",
+                "misterfin/toasty/asset1/asset1_1.png",
+                *extra,
+            )
+        ]
+
+    def test_moves_only_the_launcher_into_the_scripts_menu(self) -> None:
+        destination_for = self.generator.destination_for
+        self.assertEqual(
+            "Scripts/MiSTerFin.sh", destination_for("misterfin/MiSTerFin.sh")
+        )
+        self.assertEqual(
+            "misterfin/misterfin-arm", destination_for("misterfin/misterfin-arm")
+        )
+        self.assertEqual(
+            "misterfin/toasty/asset1/asset1_1.png",
+            destination_for("misterfin/toasty/asset1/asset1_1.png"),
+        )
+
+    def test_installs_every_published_file(self) -> None:
+        members = self.release_members()
+        selected = self.generator.selected_files(list(reversed(members)))
+
+        self.assertEqual(len(members), len(selected))
+        self.assertEqual(
+            [
+                "Scripts/MiSTerFin.sh",
+                "misterfin/about.png",
+                "misterfin/font/font.desc",
+                "misterfin/jellyfin.conf.example",
+                "misterfin/misterfin-arm",
+                "misterfin/mplayer-arm",
+                "misterfin/subfont/font.desc",
+                "misterfin/toasty/asset1/asset1_1.png",
+            ],
+            [destination for destination, _ in selected],
+        )
+
+    def test_rejects_files_outside_the_app_folder(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "outside misterfin/"):
+            self.generator.selected_files(self.release_members("docs/README.md"))
+
+    def test_rejects_a_packaged_user_config(self) -> None:
+        # Installing it would overwrite the user's Jellyfin URL and API key on
+        # every downloader run.
+        with self.assertRaisesRegex(RuntimeError, "server URL and API key"):
+            self.generator.selected_files(
+                self.release_members("misterfin/jellyfin.conf")
+            )
+
+    def test_rejects_a_release_missing_the_player(self) -> None:
+        members = [
+            member
+            for member in self.release_members()
+            if member.path != "misterfin/mplayer-arm"
+        ]
+        with self.assertRaisesRegex(RuntimeError, "misterfin/mplayer-arm"):
+            self.generator.selected_files(members)
+
+    def test_asset_pattern_accepts_two_and_three_part_versions(self) -> None:
+        pattern = self.generator.ASSET_PATTERN
+        self.assertEqual("v0.9", pattern.fullmatch("misterfin-v0.9.zip").group(1))
+        self.assertEqual(
+            "v0.9.1", pattern.fullmatch("misterfin-v0.9.1.zip").group(1)
+        )
+        self.assertIsNone(pattern.fullmatch("misterfin-source.zip"))
+
+
 class PhysicalDiscGeneratorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -256,6 +346,82 @@ class PhysicalDiscGeneratorTests(unittest.TestCase):
         ]
         with self.assertRaisesRegex(RuntimeError, r"CD-\* setname"):
             self.build_main(members)
+
+
+class SolarusGeneratorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("solarus")
+
+    def member(self, path: str):
+        return self.generator.ArchiveMember(
+            archive_path=path,
+            path=path,
+            data=b"data",
+        )
+
+    def release_members(self, *extra: str):
+        return [
+            self.member(path)
+            for path in (
+                "Scripts/Solarus.sh",
+                "_Other/Solarus_20260723.rbf",
+                "docs/Solarus/README.md",
+                "games/Solarus/libs/libsolarus.so.1",
+                "games/Solarus/quest_manager.sh",
+                "games/Solarus/quests/PUT-QUESTS-HERE.txt",
+                "games/Solarus/solarus-run",
+                "games/Solarus/solarus_daemon.sh",
+                *extra,
+            )
+        ]
+
+    def test_installs_every_published_file_in_path_order(self) -> None:
+        members = self.release_members()
+        selected = self.generator.selected_files(list(reversed(members)))
+
+        self.assertEqual(
+            [member.path for member in members],
+            [destination for destination, _ in selected],
+        )
+
+    def test_rejects_files_outside_the_mister_folders(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "outside its MiSTer folders"):
+            self.generator.selected_files(
+                self.release_members("build/solarus-mister.tar.gz")
+            )
+
+    def test_rejects_a_release_without_exactly_one_dated_core(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "Solarus_YYYYMMDD.rbf"):
+            self.generator.selected_files(
+                self.release_members("_Other/Solarus_20260724.rbf")
+            )
+
+        undated = [
+            member
+            for member in self.release_members()
+            if member.path != "_Other/Solarus_20260723.rbf"
+        ]
+        undated.append(self.member("_Other/Solarus.rbf"))
+        with self.assertRaisesRegex(RuntimeError, "Solarus_YYYYMMDD.rbf"):
+            self.generator.selected_files(undated)
+
+    def test_rejects_a_release_missing_the_engine(self) -> None:
+        members = [
+            member
+            for member in self.release_members()
+            if member.path != "games/Solarus/solarus-run"
+        ]
+        with self.assertRaisesRegex(RuntimeError, "games/Solarus/solarus-run"):
+            self.generator.selected_files(members)
+
+    def test_asset_pattern_only_accepts_versioned_release_zips(self) -> None:
+        pattern = self.generator.ASSET_PATTERN
+        self.assertEqual(
+            "v1.0.1", pattern.fullmatch("solarus-mister-v1.0.1.zip").group(1)
+        )
+        self.assertIsNone(pattern.fullmatch("solarus-mister-v1.0.1-debug.zip"))
+        self.assertIsNone(pattern.fullmatch("solarus-mister-source.zip"))
 
 
 if __name__ == "__main__":
