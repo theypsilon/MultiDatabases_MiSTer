@@ -7,11 +7,6 @@
 - Database URL:
   `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/misterfin/db.json.zip`
 
-This entry serves the compressed database: one JSON entry per bundled asset
-makes it far larger than the rest, and the ZIP is around a sixth of the size.
-The uncompressed `db.json` is still published next to it, but `db_url` points
-at the ZIP and will not change.
-
 MiSTerFin is a [Jellyfin](https://jellyfin.org) media client for MiSTer. It is
 plain ARM software, not a hybrid FPGA/ARM port and not an FPGA core: it runs
 from the Scripts menu on the standard `menu.rbf` and draws to the regular
