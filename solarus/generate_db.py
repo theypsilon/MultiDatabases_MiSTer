@@ -31,6 +31,9 @@ ARCHIVE_ID = "release"
 ASSET_PATTERN = re.compile(r"solarus-mister-(v\d+\.\d+\.\d+)\.zip", re.IGNORECASE)
 CORE_PATTERN = re.compile(r"_Other/Solarus_\d{8}\.rbf")
 INSTALL_ROOTS = ("Scripts/", "_Other/", "docs/Solarus/", "games/Solarus/")
+# Release provenance for the ZIP itself, so it is dropped instead of landing on
+# the SD card root.
+IGNORED = ("BUILD-INFO.txt",)
 # Scripts/Solarus.sh only starts the daemon when none is running, and the daemon
 # registers itself into user-startup.sh, so an updated daemon takes over on the
 # next boot rather than on the next core load.
@@ -48,9 +51,10 @@ def selected_files(
     members: Sequence[ArchiveMember],
 ) -> tuple[tuple[str, ArchiveMember], ...]:
     """Validate the release layout and install every file it publishes."""
+    installable = [member for member in members if member.path not in IGNORED]
     unexpected = sorted(
         member.path
-        for member in members
+        for member in installable
         if not member.path.startswith(INSTALL_ROOTS)
     )
     if unexpected:
@@ -60,7 +64,7 @@ def selected_files(
         )
 
     cores = sorted(
-        member.path for member in members if CORE_PATTERN.fullmatch(member.path)
+        member.path for member in installable if CORE_PATTERN.fullmatch(member.path)
     )
     if len(cores) != 1:
         raise RuntimeError(
@@ -69,7 +73,7 @@ def selected_files(
             + (", ".join(cores) or "none")
         )
 
-    missing = sorted(set(REQUIRED).difference(member.path for member in members))
+    missing = sorted(set(REQUIRED).difference(member.path for member in installable))
     if missing:
         raise RuntimeError(
             "Solarus MiSTer ZIP is missing required files: " + ", ".join(missing)
@@ -77,7 +81,7 @@ def selected_files(
 
     return tuple(
         (member.path, member)
-        for member in sorted(members, key=lambda member: member.path)
+        for member in sorted(installable, key=lambda member: member.path)
     )
 
 

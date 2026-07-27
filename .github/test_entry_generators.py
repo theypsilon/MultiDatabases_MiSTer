@@ -395,6 +395,17 @@ class SolarusGeneratorTests(unittest.TestCase):
                 self.release_members("build/solarus-mister.tar.gz")
             )
 
+    def test_drops_the_release_provenance_file(self) -> None:
+        expected = self.release_members()
+        selected = self.generator.selected_files(
+            self.release_members("BUILD-INFO.txt")
+        )
+
+        self.assertEqual(
+            [member.path for member in expected],
+            [destination for destination, _ in selected],
+        )
+
     def test_rejects_a_release_without_exactly_one_dated_core(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "Solarus_YYYYMMDD.rbf"):
             self.generator.selected_files(

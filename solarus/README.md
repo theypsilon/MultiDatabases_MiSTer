@@ -11,12 +11,13 @@ Solarus MiSTer is a hybrid FPGA/ARM port of the [Solarus](https://www.solarus-ga
 2D action-RPG engine rather than a standalone FPGA core: the engine runs as ARM
 software while a custom FPGA core composites the frame and drives video, audio,
 and input. The generator follows the latest GitHub release ZIP named
-`solarus-mister-vX.Y.Z.zip` and installs everything it publishes — the
+`solarus-mister-vX.Y.Z.zip` and installs every MiSTer file it publishes — the
 `_Other/Solarus_YYYYMMDD.rbf` core, the `games/Solarus` engine, launcher
 scripts and libraries, the `Scripts/Solarus.sh` launcher, and the on-card
-`docs/Solarus` README. Updates to the auto-launch daemon are marked as
-requiring a reboot, because an already-running daemon keeps serving until the
-next boot.
+`docs/Solarus` README. Only the ZIP's own `BUILD-INFO.txt` release provenance
+is left out, since it is not a MiSTer file. Updates to the auto-launch daemon
+are marked as requiring a reboot, because an already-running daemon keeps
+serving until the next boot.
 
 ## Installation
 
