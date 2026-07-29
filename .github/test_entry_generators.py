@@ -441,3 +441,53 @@ class SolarusGeneratorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MisterDiscGeneratorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("mister-disc")
+
+    def test_mgl_destinations_land_in_disc_cores(self) -> None:
+        self.assertEqual(
+            "_Disc Cores/PlayStation.mgl",
+            self.generator.mgl_destination("PlayStation.mgl"),
+        )
+        destinations = [
+            self.generator.mgl_destination(name)
+            for name in self.generator.MGL_FILES
+        ]
+        self.assertEqual(7, len(destinations))
+        self.assertEqual(len(destinations), len(set(destinations)))
+        for destination in destinations:
+            self.assertTrue(destination.startswith("_Disc Cores/"))
+            self.assertTrue(destination.endswith(".mgl"))
+
+    def test_asset_patterns_do_not_cross_match(self) -> None:
+        self.assertIsNotNone(self.generator.PLAIN_ASSET.fullmatch("MiSTer-disc"))
+        self.assertIsNone(self.generator.PLAIN_ASSET.fullmatch("MiSTer-disc-RA"))
+        self.assertIsNotNone(self.generator.RA_ASSET.fullmatch("MiSTer-disc-RA"))
+        self.assertIsNone(self.generator.RA_ASSET.fullmatch("MiSTer-disc"))
+
+    def test_shipped_mgls_pass_validation(self) -> None:
+        mgl_dir = ROOT / "mister-disc" / "mgl"
+        for name in self.generator.MGL_FILES:
+            data = (mgl_dir / name).read_bytes()
+            self.generator.validate_mgl(name, data)
+
+    def test_mgl_validation_rejects_missing_same_dir(self) -> None:
+        bad = (
+            b"<mistergamedescription>\n"
+            b"    <rbf>_Console/PSX</rbf>\n"
+            b"    <setname>CD-PSX</setname>\n"
+            b"</mistergamedescription>\n"
+        )
+        with self.assertRaises(RuntimeError):
+            self.generator.validate_mgl("PlayStation.mgl", bad)
+
+    def test_binary_validation_requires_elf(self) -> None:
+        with self.assertRaises(RuntimeError):
+            self.generator.validate_main_binary("MiSTer-disc", b"MZ" + b"\0" * 600000)
+        self.generator.validate_main_binary(
+            "MiSTer-disc", b"\x7fELF" + b"\0" * 600000
+        )
