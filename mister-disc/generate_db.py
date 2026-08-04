@@ -27,8 +27,10 @@ from db_helpers import (  # noqa: E402
 FOLDER = "mister-disc"
 UPSTREAM = "theshaneobrien/mister-disc-drive-support"
 
-PLAIN_ASSET = re.compile(r"MiSTer-disc")
-RA_ASSET = re.compile(r"MiSTer-disc-RA")
+# anchored: releases now carry more assets (translate install zip, MGL zip)
+# and an unanchored "MiSTer-disc" could match "MiSTer-disc-RA" first
+PLAIN_ASSET = re.compile(r"^MiSTer-disc$")
+RA_ASSET = re.compile(r"^MiSTer-disc-RA$")
 
 MGL_FILES = (
     "3DO.mgl",
@@ -40,9 +42,21 @@ MGL_FILES = (
     "TurboGrafx-CD.mgl",
 )
 
+# on-the-fly translation payload, vendored under payload/ in this entry
+# (same SD-root layout as the upstream release's install zip). Note what is
+# deliberately NOT here: translate.ini (user-owned, holds the API key -
+# translate_start.sh creates it from a template on first run) and
+# hotkey.cfg (written by the SetTranslateHotkey script).
+TRANSLATE_FILES = (
+    "translate/translate_daemon.py",
+    "translate/translate_start.sh",
+    "translate/README.md",
+    "Scripts/SetTranslateHotkey.sh",
+)
+
 
 def mgl_destination(name: str) -> str:
-    return f"_Disc Cores/{name}"
+    return f"_Disc_Cores/{name}"
 
 
 def validate_main_binary(name: str, data: bytes) -> None:
@@ -64,6 +78,13 @@ def validate_mgl(name: str, data: bytes) -> None:
             raise RuntimeError(f"{name} is missing {needle!r}")
 
 
+def validate_script(name: str, data: bytes) -> None:
+    if not (data.startswith(b"#!") or name.endswith(".md")):
+        raise RuntimeError(f"{name} does not look like a script (missing shebang)")
+    if len(data) < 100:
+        raise RuntimeError(f"{name} is implausibly small: {len(data)}")
+
+
 def main() -> int:
     args = generator_parser(FOLDER, "Generate the MiSTer Disc database").parse_args()
     release = github_latest_release(UPSTREAM)
@@ -79,9 +100,12 @@ def main() -> int:
     if plain_data == ra_data:
         raise RuntimeError("Plain and RA builds are identical: wrong release layout")
 
+    # binaries land under their release names - the ini routing lines
+    # (MAIN=MiSTer-disc / main=MiSTer-disc-RA) reference these exact names,
+    # so they are permanent API
     direct_files = [
-        DirectFile(path="MiSTer_Disc", url=plain_url, data=plain_data),
-        DirectFile(path="MiSTer_Disc_RA", url=ra_url, data=ra_data),
+        DirectFile(path="MiSTer-disc", url=plain_url, data=plain_data),
+        DirectFile(path="MiSTer-disc-RA", url=ra_url, data=ra_data),
     ]
     for name in MGL_FILES:
         path = Path(__file__).with_name("mgl") / name
@@ -94,6 +118,21 @@ def main() -> int:
                     args.repository,
                     git_file_revision(path),
                     f"{FOLDER}/mgl/{name}",
+                ),
+                data=data,
+            )
+        )
+    for rel in TRANSLATE_FILES:
+        path = Path(__file__).with_name("payload") / rel
+        data = path.read_bytes()
+        validate_script(rel, data)
+        direct_files.append(
+            DirectFile(
+                path=rel,
+                url=github_raw_url(
+                    args.repository,
+                    git_file_revision(path),
+                    f"{FOLDER}/payload/{rel}",
                 ),
                 data=data,
             )

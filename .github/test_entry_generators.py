@@ -439,10 +439,6 @@ class SolarusGeneratorTests(unittest.TestCase):
         self.assertIsNone(pattern.fullmatch("solarus-mister-source.zip"))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class MisterDiscGeneratorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -450,7 +446,7 @@ class MisterDiscGeneratorTests(unittest.TestCase):
 
     def test_mgl_destinations_land_in_disc_cores(self) -> None:
         self.assertEqual(
-            "_Disc Cores/PlayStation.mgl",
+            "_Disc_Cores/PlayStation.mgl",
             self.generator.mgl_destination("PlayStation.mgl"),
         )
         destinations = [
@@ -460,7 +456,7 @@ class MisterDiscGeneratorTests(unittest.TestCase):
         self.assertEqual(7, len(destinations))
         self.assertEqual(len(destinations), len(set(destinations)))
         for destination in destinations:
-            self.assertTrue(destination.startswith("_Disc Cores/"))
+            self.assertTrue(destination.startswith("_Disc_Cores/"))
             self.assertTrue(destination.endswith(".mgl"))
 
     def test_asset_patterns_do_not_cross_match(self) -> None:
@@ -491,3 +487,19 @@ class MisterDiscGeneratorTests(unittest.TestCase):
         self.generator.validate_main_binary(
             "MiSTer-disc", b"\x7fELF" + b"\0" * 600000
         )
+
+    def test_translate_payload_ships_and_validates(self) -> None:
+        payload_dir = ROOT / "mister-disc" / "payload"
+        self.assertEqual(4, len(self.generator.TRANSLATE_FILES))
+        for rel in self.generator.TRANSLATE_FILES:
+            data = (payload_dir / rel).read_bytes()
+            self.generator.validate_script(rel, data)
+
+    def test_translate_payload_excludes_user_owned_files(self) -> None:
+        joined = " ".join(self.generator.TRANSLATE_FILES)
+        self.assertNotIn("translate.ini", joined)
+        self.assertNotIn("hotkey.cfg", joined)
+
+
+if __name__ == "__main__":
+    unittest.main()
