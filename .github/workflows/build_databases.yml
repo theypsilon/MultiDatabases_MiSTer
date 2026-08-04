@@ -70,6 +70,7 @@ jobs:
           dist
 
       - name: Publish orphan db branch
+        id: publish
         shell: bash
         run: |
           set -euo pipefail
@@ -90,8 +91,32 @@ jobs:
           git -C "$publish_worktree" rm -rf .
           cp -a dist/. "$publish_worktree"/
           git -C "$publish_worktree" add .
+
+          # Unchanged bundles are preserved byte-for-byte, so an identical tree
+          # means no database moved and the published commit still stands.
+          published=$(git rev-parse --verify --quiet refs/remotes/origin/db \
+            || git hash-object -t tree /dev/null)
+          if git -C "$publish_worktree" diff --quiet --cached "$published"; then
+            echo "No database changed; leaving the db branch alone"
+            exit 0
+          fi
+          entries=$(git -C "$publish_worktree" diff --name-only --cached "$published" \
+            | cut -d/ -f1 | sort -u | tr '\n' ' ')
+
           git -C "$publish_worktree" commit -m "Generate databases"
           git -C "$publish_worktree" push --force origin db
+
+          db_commit=$(git -C "$publish_worktree" rev-parse --verify HEAD)
+          echo "db_commit=$db_commit" >> "$GITHUB_OUTPUT"
+          echo "entries=$entries" >> "$GITHUB_OUTPUT"
+          echo "Published $db_commit with changes in: $entries"
+
+      - name: Track the published database on the db-releases branch
+        if: steps.publish.outputs.db_commit != ''
+        env:
+          DB_COMMIT: ${{ steps.publish.outputs.db_commit }}
+          DB_ENTRIES: ${{ steps.publish.outputs.entries }}
+        run: python3 .github/track_release.py "$DB_COMMIT" --entries $DB_ENTRIES
 
       - name: Report databases that could not be updated
         if: always()

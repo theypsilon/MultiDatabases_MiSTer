@@ -43,7 +43,16 @@
   timestamp and preserves an unchanged entry byte-for-byte, independently of
   changes to other entries.
 - Keep generated bundles out of the source branch. The orphan `db` branch must
-  contain only generated entry folders.
+  contain only generated entry folders, and it is pushed only when the bundle
+  tree differs from the published one. Unchanged bundles are byte-for-byte
+  identical, so a build that changed nothing leaves `db` untouched.
+- Every published `db` commit is logged on the orphan `db-releases` branch:
+  `.github/track_release.py` appends `<UTC timestamp>: <db commit>` to
+  `commits.txt`, and to `<entry>/commits.txt` for every entry whose bundle
+  changed in that commit, so each database can be traced in isolation and the
+  history that force-pushing `db` drops stays recoverable by commit. The log is
+  pushed without force, tracking never touches the build checkout, and a
+  tracking failure warns instead of failing a run that already published.
 - The workflow must run unit tests, generate every entry, validate every
   bundle, and pass the official MiSTer Downloader integration test before
   pushing the `db` branch.
