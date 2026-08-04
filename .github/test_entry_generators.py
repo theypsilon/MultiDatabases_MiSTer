@@ -193,6 +193,199 @@ class MisterFinGeneratorTests(unittest.TestCase):
         self.assertIsNone(pattern.fullmatch("misterfin-source.zip"))
 
 
+class MisterHiFiGeneratorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("mister-hifi")
+
+    APP_FOLDER = "Scripts/.config/MiSTerHiFi"
+    LAUNCHER = "Scripts/misterhifi.sh"
+    BINARY = f"{APP_FOLDER}/mister_hifi"
+    # 32-bit little-endian EM_ARM header, then enough bytes to look like a build.
+    ARM_BINARY = (
+        b"\x7fELF\x01\x01\x01" + bytes(9) + b"\x02\x00\x28\x00" + bytes(600_000)
+    )
+    LAUNCHER_SCRIPT = (
+        b'#!/bin/bash\n'
+        b'VERSION="1.0.0"\n'
+        b'BASE="/media/fat/Scripts/.config/MiSTerHiFi"\n'
+        b'BIN="$BASE/mister_hifi"\n'
+        b'exec "$BIN" "$@"\n'
+    )
+
+    def member(self, path: str, data: bytes = b"data"):
+        return self.generator.ArchiveMember(archive_path=path, path=path, data=data)
+
+    def release_members(self, *extra, launcher: bytes | None = None):
+        return [
+            self.member(self.LAUNCHER, launcher or self.LAUNCHER_SCRIPT),
+            self.member(self.BINARY, self.ARM_BINARY),
+            self.member(f"{self.APP_FOLDER}/smb.example.json", b"{}"),
+            *extra,
+        ]
+
+    def test_installs_every_published_file_in_path_order(self) -> None:
+        members = self.release_members()
+        selected = self.generator.selected_files(list(reversed(members)))
+
+        self.assertEqual(
+            [
+                self.BINARY,
+                f"{self.APP_FOLDER}/smb.example.json",
+                self.LAUNCHER,
+            ],
+            [destination for destination, _ in selected],
+        )
+
+    def test_follows_a_renamed_application_folder(self) -> None:
+        # A future release may rename the folder; the launcher decides where the
+        # binary belongs, so the generator follows it instead of a constant.
+        launcher = self.LAUNCHER_SCRIPT.replace(b"MiSTerHiFi", b"HiFi")
+        members = [
+            self.member(self.LAUNCHER, launcher),
+            self.member("Scripts/.config/HiFi/mister_hifi", self.ARM_BINARY),
+        ]
+        selected = self.generator.selected_files(members)
+
+        self.assertEqual(
+            ["Scripts/.config/HiFi/mister_hifi", self.LAUNCHER],
+            [destination for destination, _ in selected],
+        )
+
+    def test_rejects_files_outside_the_scripts_folder(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "outside Scripts/"):
+            self.generator.selected_files(
+                self.release_members(self.member("README.md"))
+            )
+
+    def test_rejects_files_outside_the_application_folder(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, f"outside {self.APP_FOLDER}/"):
+            self.generator.selected_files(
+                self.release_members(self.member("Scripts/.config/other/notes.txt"))
+            )
+
+    def test_rejects_a_binary_outside_a_config_subfolder(self) -> None:
+        members = [
+            self.member(self.LAUNCHER, self.LAUNCHER_SCRIPT),
+            self.member("Scripts/mister_hifi", self.ARM_BINARY),
+        ]
+        with self.assertRaisesRegex(RuntimeError, "Scripts/.config/<app> folder"):
+            self.generator.selected_files(members)
+
+    def test_rejects_packaged_settings_and_credentials(self) -> None:
+        # Installing them would overwrite the settings MiSTer Hi-Fi writes on
+        # first launch and the user's own SMB share credentials.
+        for name in ("config.json", "smb.json"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(RuntimeError, "SMB credentials"):
+                    self.generator.selected_files(
+                        self.release_members(
+                            self.member(f"{self.APP_FOLDER}/{name}", b"{}")
+                        )
+                    )
+
+    def test_rejects_a_launcher_that_runs_another_path(self) -> None:
+        launcher = self.LAUNCHER_SCRIPT.replace(b"mister_hifi", b"mister_hifi_debug")
+        with self.assertRaisesRegex(RuntimeError, "does not run /media/fat/"):
+            self.generator.selected_files(self.release_members(launcher=launcher))
+
+    def test_accepts_a_launcher_that_spells_out_the_binary_path(self) -> None:
+        launcher = b'#!/bin/sh\nexec "/media/fat/' + self.BINARY.encode() + b'" "$@"\n'
+        selected = self.generator.selected_files(
+            self.release_members(launcher=launcher)
+        )
+
+        self.assertEqual(3, len(selected))
+
+    def test_requires_exactly_one_launcher(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "exactly one Scripts/\\*.sh"):
+            self.generator.selected_files(
+                self.release_members(self.member("Scripts/misterhifi_extra.sh", b"#!"))
+            )
+
+        with self.assertRaisesRegex(RuntimeError, "exactly one Scripts/\\*.sh"):
+            self.generator.selected_files(
+                [self.member(self.BINARY, self.ARM_BINARY)]
+            )
+
+    def test_requires_exactly_one_arm_binary(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "exactly one ARM binary"):
+            self.generator.selected_files(
+                self.release_members(
+                    self.member(f"{self.APP_FOLDER}/helper", self.ARM_BINARY)
+                )
+            )
+
+    def test_binary_validation_requires_a_32_bit_arm_build(self) -> None:
+        validate_binary = self.generator.validate_binary
+        validate_binary(self.BINARY, self.ARM_BINARY)
+
+        with self.assertRaisesRegex(RuntimeError, "not an ELF"):
+            validate_binary(self.BINARY, b"MZ" + bytes(600_000))
+        x86 = bytearray(self.ARM_BINARY)
+        x86[18:20] = b"\x3e\x00"
+        with self.assertRaisesRegex(RuntimeError, "little-endian ARM"):
+            validate_binary(self.BINARY, bytes(x86))
+        with self.assertRaisesRegex(RuntimeError, "implausible size"):
+            validate_binary(self.BINARY, self.ARM_BINARY[:1000])
+
+    def test_takes_any_zip_asset_name_from_the_latest_release(self) -> None:
+        # The upstream asset is unversioned today, so the generator must not
+        # depend on its name to pick up the next release.
+        release = {
+            "tag_name": "v1.1.0",
+            "assets": [
+                {"name": "MiSTer_Hi-Fi_v1.1.0.zip"},
+                {"name": "source-code.txt"},
+            ],
+        }
+        self.assertEqual(
+            (release["assets"][0],), self.generator.zip_assets(release)
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "does not contain a ZIP"):
+            self.generator.zip_assets({"tag_name": "v1.1.0", "assets": []})
+
+    def test_selects_the_compatible_zip_and_names_the_release_tag(self) -> None:
+        release = {
+            "tag_name": "v1.1.0",
+            "assets": [
+                {
+                    "name": "extras.zip",
+                    "browser_download_url": (
+                        "https://github.com/Anime0t4ku/MiSTer_Hi-Fi/releases/"
+                        "download/v1.1.0/extras.zip"
+                    ),
+                },
+                {
+                    "name": "MiSTer_Hi-Fi.zip",
+                    "browser_download_url": (
+                        "https://github.com/Anime0t4ku/MiSTer_Hi-Fi/releases/"
+                        "download/v1.1.0/MiSTer_Hi-Fi.zip"
+                    ),
+                },
+            ],
+        }
+        with patch.object(
+            self.generator, "http_get_bytes", side_effect=(b"extras", b"bundle")
+        ):
+            with patch.object(
+                self.generator,
+                "read_archive_members",
+                side_effect=([self.member("Scripts/notes.txt")], self.release_members()),
+            ):
+                archive = self.generator.release_archive(release)
+
+        self.assertTrue(archive.url.endswith("/v1.1.0/MiSTer_Hi-Fi.zip"))
+        self.assertEqual("Installing MiSTer Hi-Fi v1.1.0", archive.description)
+
+    def test_reads_the_version_declared_by_the_launcher(self) -> None:
+        self.assertEqual(
+            "1.0.0", self.generator.launcher_version(self.LAUNCHER_SCRIPT.decode())
+        )
+        self.assertEqual("unknown", self.generator.launcher_version("#!/bin/sh\n"))
+
+
 class PhysicalDiscGeneratorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
