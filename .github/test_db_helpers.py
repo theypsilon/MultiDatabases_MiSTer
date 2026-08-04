@@ -7,13 +7,22 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
+import db_helpers
 from db_helpers import (
+    ArchiveMember,
     apply_standard_tags,
+    compatible_release_zip,
     database_id,
     database_url,
+    expand_shell_variables,
     github_raw_url,
+    read_scripts_app,
+    release_tag,
+    shell_variable,
     strip_spurious_reboot_flags,
+    validate_arm_binary,
     validate_database,
     validate_payload_url,
     write_bundle,
@@ -209,6 +218,214 @@ class PayloadUrlTests(unittest.TestCase):
             with self.subTest(url=url):
                 with self.assertRaisesRegex(RuntimeError, "commit|concrete"):
                     validate_payload_url(url)
+
+
+class ScriptsAppTests(unittest.TestCase):
+    APP_FOLDER = "Scripts/.config/ExampleApp"
+    LAUNCHER = "Scripts/example.sh"
+    BINARY = f"{APP_FOLDER}/example_app"
+    # 32-bit little-endian EM_ARM header, then enough bytes to look like a build.
+    ARM_BINARY = (
+        b"\x7fELF\x01\x01\x01" + bytes(9) + b"\x02\x00\x28\x00" + bytes(600_000)
+    )
+    SCRIPT = (
+        b'#!/bin/bash\n'
+        b'VERSION="1.2.3"\n'
+        b'BASE="/media/fat/Scripts/.config/ExampleApp"\n'
+        b'BIN="$BASE/example_app"\n'
+        b'exec "$BIN" "$@"\n'
+    )
+
+    def member(self, path: str, data: bytes = b"data") -> ArchiveMember:
+        return ArchiveMember(archive_path=path, path=path, data=data)
+
+    def members(self, *extra: ArchiveMember, launcher: bytes | None = None):
+        return [
+            self.member(self.LAUNCHER, launcher or self.SCRIPT),
+            self.member(self.BINARY, self.ARM_BINARY),
+            self.member(f"{self.APP_FOLDER}/example.json", b"{}"),
+            *extra,
+        ]
+
+    def read(self, members, **kwargs):
+        return read_scripts_app(members, name="Example", **kwargs)
+
+    def test_reads_the_launcher_binary_and_every_published_file(self) -> None:
+        members = self.members()
+        app = self.read(list(reversed(members)))
+
+        self.assertEqual(self.LAUNCHER, app.launcher.path)
+        self.assertEqual(self.BINARY, app.binary.path)
+        self.assertEqual(self.APP_FOLDER, app.folder)
+        self.assertEqual(
+            [f"{self.APP_FOLDER}/example.json", self.BINARY, self.LAUNCHER],
+            [destination for destination, _ in app.files],
+        )
+
+    def test_follows_a_renamed_application_folder(self) -> None:
+        # The launcher decides where the binary belongs, so a future release can
+        # rename its folder without the entry pinning the old name.
+        launcher = self.SCRIPT.replace(b"ExampleApp", b"Renamed")
+        app = self.read(
+            [
+                self.member(self.LAUNCHER, launcher),
+                self.member("Scripts/.config/Renamed/example_app", self.ARM_BINARY),
+            ]
+        )
+
+        self.assertEqual("Scripts/.config/Renamed", app.folder)
+
+    def test_rejects_files_outside_the_scripts_folder(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "outside Scripts/"):
+            self.read(self.members(self.member("README.md")))
+
+    def test_rejects_files_outside_the_application_folder(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, f"outside {self.APP_FOLDER}/"):
+            self.read(self.members(self.member("Scripts/.config/other/notes.txt")))
+
+    def test_rejects_a_binary_outside_a_config_subfolder(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "Scripts/.config/<app> folder"):
+            self.read(
+                [
+                    self.member(self.LAUNCHER, self.SCRIPT),
+                    self.member("Scripts/example_app", self.ARM_BINARY),
+                ]
+            )
+
+    def test_rejects_a_launcher_that_runs_another_path(self) -> None:
+        launcher = self.SCRIPT.replace(b"example_app", b"example_app_debug")
+        with self.assertRaisesRegex(RuntimeError, "does not run /media/fat/"):
+            self.read(self.members(launcher=launcher))
+
+    def test_accepts_a_launcher_that_spells_out_the_binary_path(self) -> None:
+        launcher = b'#!/bin/sh\nexec "/media/fat/' + self.BINARY.encode() + b'" "$@"\n'
+        app = self.read(self.members(launcher=launcher))
+
+        self.assertEqual(3, len(app.files))
+
+    def test_requires_exactly_one_launcher_and_one_binary(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, r"exactly one Scripts/\*\.sh"):
+            self.read(self.members(self.member("Scripts/extra.sh", b"#!")))
+        with self.assertRaisesRegex(RuntimeError, r"exactly one Scripts/\*\.sh"):
+            self.read([self.member(self.BINARY, self.ARM_BINARY)])
+        with self.assertRaisesRegex(RuntimeError, "exactly one ARM binary"):
+            self.read(
+                self.members(self.member(f"{self.APP_FOLDER}/helper", self.ARM_BINARY))
+            )
+
+    def test_rejects_a_launcher_that_is_not_a_script(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "not a script"):
+            self.read(self.members(launcher=b"echo hello\n"))
+
+    def test_rejects_packaged_files_the_user_owns(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "belong to the user"):
+            self.read(
+                self.members(self.member(f"{self.APP_FOLDER}/config.json", b"{}")),
+                user_owned=("config.json",),
+            )
+
+        # A trailing slash covers everything below that folder.
+        with self.assertRaisesRegex(RuntimeError, "belong to the user"):
+            self.read(
+                self.members(
+                    self.member(f"{self.APP_FOLDER}/Saves/game/state.bin", b"x")
+                ),
+                user_owned=("Saves/",),
+            )
+
+        # A sibling with the same prefix is not part of the subtree.
+        self.read(
+            self.members(self.member(f"{self.APP_FOLDER}/Saves.md", b"x")),
+            user_owned=("Saves/",),
+        )
+
+    def test_binary_validation_requires_a_32_bit_arm_build(self) -> None:
+        validate_arm_binary(self.BINARY, self.ARM_BINARY)
+
+        with self.assertRaisesRegex(RuntimeError, "not an ELF"):
+            validate_arm_binary(self.BINARY, b"MZ" + bytes(600_000))
+        x86 = bytearray(self.ARM_BINARY)
+        x86[18:20] = b"\x3e\x00"
+        with self.assertRaisesRegex(RuntimeError, "little-endian ARM"):
+            validate_arm_binary(self.BINARY, bytes(x86))
+        with self.assertRaisesRegex(RuntimeError, "implausible size"):
+            validate_arm_binary(self.BINARY, self.ARM_BINARY[:1000])
+
+    def test_reads_shell_variables_and_expands_them(self) -> None:
+        text = self.SCRIPT.decode()
+        self.assertEqual("1.2.3", shell_variable(text, "VERSION"))
+        self.assertEqual("unknown", shell_variable("#!/bin/sh\n", "VERSION"))
+        self.assertIn(
+            '"/media/fat/Scripts/.config/ExampleApp/example_app"',
+            expand_shell_variables(text),
+        )
+
+
+class CompatibleReleaseZipTests(unittest.TestCase):
+    def release(self, *names: str) -> dict:
+        return {
+            "tag_name": "v1.2.3",
+            "assets": [
+                {
+                    "name": name,
+                    "browser_download_url": (
+                        f"https://github.com/example/project/releases/"
+                        f"download/v1.2.3/{name}"
+                    ),
+                }
+                for name in names
+            ],
+        }
+
+    def accept(self, members):
+        if members[0].path != "good":
+            raise RuntimeError("unexpected layout")
+        return "accepted"
+
+    def pick(self, release: dict, layouts: tuple[str, ...]):
+        with patch.object(
+            db_helpers, "http_get_bytes", side_effect=[b"zip"] * len(layouts)
+        ):
+            with patch.object(
+                db_helpers,
+                "read_archive_members",
+                side_effect=[
+                    [ArchiveMember(archive_path=path, path=path, data=b"x")]
+                    for path in layouts
+                ],
+            ):
+                return compatible_release_zip(
+                    release, accept=self.accept, context="example release"
+                )
+
+    def test_picks_the_asset_that_validates_whatever_it_is_called(self) -> None:
+        url, data, accepted = self.pick(
+            self.release("docs.zip", "renamed-in-this-release.zip"),
+            ("bad", "good"),
+        )
+
+        self.assertTrue(url.endswith("/renamed-in-this-release.zip"))
+        self.assertEqual(b"zip", data)
+        self.assertEqual("accepted", accepted)
+
+    def test_reports_why_every_asset_was_rejected(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "docs.zip: unexpected layout"):
+            self.pick(self.release("docs.zip"), ("bad",))
+
+    def test_rejects_an_ambiguous_release(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "multiple compatible"):
+            self.pick(self.release("one.zip", "two.zip"), ("good", "good"))
+
+    def test_requires_a_zip_asset(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "does not contain a ZIP"):
+            compatible_release_zip(
+                self.release("core.rbf"), accept=self.accept, context="example release"
+            )
+
+    def test_release_tag_falls_back_to_the_release_name(self) -> None:
+        self.assertEqual("v1.2.3", release_tag({"tag_name": "v1.2.3"}))
+        self.assertEqual("named", release_tag({"name": "named"}))
+        self.assertEqual("unknown", release_tag({}))
 
 
 class FakeOperatorTags:

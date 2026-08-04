@@ -25,7 +25,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Iterable, Iterator, Mapping, Sequence
+from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence, TypeVar
 
 
 DB_NAMESPACE = "MultiDatabases"
@@ -49,6 +49,20 @@ INVALID_EXACT_PATHS = {
 INVALID_ROOT_FOLDERS = {"linux", "saves", "savestates", "screenshots", "downloader"}
 MD5_RE = re.compile(r"^[0-9a-f]{32}$")
 GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+
+SCRIPTS_FOLDER = "Scripts"
+SCRIPTS_CONFIG_FOLDER = "Scripts/.config"
+MISTER_ROOT = "/media/fat/"
+SHELL_ASSIGNMENT = re.compile(
+    r"^[ \t]*([A-Za-z_][A-Za-z0-9_]*)="
+    r"""(?:"([^"\n]*)"|'([^'\n]*)'|([^\s;#]*))[ \t]*$""",
+    re.MULTILINE,
+)
+SHELL_VARIABLE = re.compile(
+    r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)"
+)
+
+T = TypeVar("T")
 
 
 @dataclass(frozen=True)
@@ -75,6 +89,14 @@ class SelectiveArchive:
     selected_files: Sequence[tuple[str, ArchiveMember]]
     description: str
     reboot_paths: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ScriptsApp:
+    launcher: ArchiveMember
+    binary: ArchiveMember
+    folder: str
+    files: tuple[tuple[str, ArchiveMember], ...]
 
 
 def generator_parser(folder: str, description: str) -> argparse.ArgumentParser:
@@ -357,6 +379,193 @@ def read_archive_members(archive_data: bytes) -> list[ArchiveMember]:
     if not members:
         raise RuntimeError("The release ZIP is empty")
     return members
+
+
+def release_tag(release: Mapping[str, Any]) -> str:
+    return str(release.get("tag_name") or release.get("name") or "unknown")
+
+
+def compatible_release_zip(
+    release: Mapping[str, Any],
+    *,
+    accept: Callable[[Sequence[ArchiveMember]], T],
+    context: str,
+) -> tuple[str, bytes, T]:
+    """Pick the release ZIP whose contents `accept` validates.
+
+    Upstreams rename their assets between releases, so the asset is chosen by
+    what it contains instead of by its name.
+    """
+    assets = [
+        asset
+        for asset in release.get("assets") or []
+        if isinstance(asset, dict)
+        and str(asset.get("name") or "").lower().endswith(".zip")
+    ]
+    if not assets:
+        raise RuntimeError(f"{context} does not contain a ZIP asset")
+
+    compatible: list[tuple[str, bytes, T]] = []
+    rejected: list[str] = []
+    for asset in assets:
+        name = str(asset.get("name") or "unnamed ZIP")
+        try:
+            url = release_asset_url(asset)
+            data = http_get_bytes(url)
+            accepted = accept(read_archive_members(data))
+        except (RuntimeError, zipfile.BadZipFile) as exc:
+            rejected.append(f"{name}: {exc}")
+        else:
+            compatible.append((url, data, accepted))
+
+    if len(compatible) == 1:
+        return compatible[0]
+    if len(compatible) > 1:
+        raise RuntimeError(f"{context} contains multiple compatible ZIP assets")
+    raise RuntimeError(
+        f"{context} has no compatible ZIP asset: " + "; ".join(rejected)
+    )
+
+
+def validate_arm_binary(path: str, data: bytes) -> None:
+    if not data.startswith(b"\x7fELF"):
+        raise RuntimeError(f"{path} is not an ELF binary")
+    # 32-bit, little-endian, EM_ARM: what the MiSTer's ARMv7 userland runs.
+    if data[4:6] != b"\x01\x01" or data[18:20] != b"\x28\x00":
+        raise RuntimeError(f"{path} is not a 32-bit little-endian ARM binary")
+    if not 500_000 < len(data) < 64_000_000:
+        raise RuntimeError(f"{path} has an implausible size: {len(data)}")
+
+
+def expand_shell_variables(text: str) -> str:
+    """Resolve a script's own `NAME=value` assignments inside its text."""
+    values: dict[str, str] = {}
+
+    def expand(raw: str) -> str:
+        return SHELL_VARIABLE.sub(
+            lambda match: values.get(match.group(1) or match.group(2), match.group(0)),
+            raw,
+        )
+
+    for match in SHELL_ASSIGNMENT.finditer(text):
+        raw = next(group for group in match.groups()[1:] if group is not None)
+        values[match.group(1)] = expand(raw)
+
+    return expand(text)
+
+
+def shell_variable(text: str, name: str) -> str:
+    match = re.search(
+        rf"""^[ \t]*{re.escape(name)}=["']?([^"'\s]+)""", text, re.MULTILINE
+    )
+    return match.group(1) if match else "unknown"
+
+
+def read_scripts_app(
+    members: Sequence[ArchiveMember],
+    *,
+    name: str,
+    user_owned: Sequence[str] = (),
+) -> ScriptsApp:
+    """Read a Scripts launcher and its `Scripts/.config` payload from a release.
+
+    Apps of this shape ship one launcher for the MiSTer Scripts menu and one ARM
+    binary inside their own `Scripts/.config` folder, which the launcher runs by
+    absolute path. Paths in `user_owned` are relative to that folder and name
+    what the app writes itself; a trailing slash covers a whole subtree.
+    """
+    outside = sorted(
+        member.path
+        for member in members
+        if not member.path.startswith(f"{SCRIPTS_FOLDER}/")
+    )
+    if outside:
+        raise RuntimeError(
+            f"{name} ZIP installs outside {SCRIPTS_FOLDER}/: " + ", ".join(outside)
+        )
+
+    launchers = [
+        member
+        for member in members
+        if posixpath.dirname(member.path) == SCRIPTS_FOLDER
+        and member.path.lower().endswith(".sh")
+    ]
+    if len(launchers) != 1:
+        raise RuntimeError(
+            f"{name} ZIP must ship exactly one {SCRIPTS_FOLDER}/*.sh launcher, "
+            "found: "
+            + (", ".join(sorted(member.path for member in launchers)) or "none")
+        )
+    launcher = launchers[0]
+    if not launcher.data.startswith(b"#!"):
+        raise RuntimeError(f"{name} launcher is not a script: {launcher.path}")
+
+    binaries = [member for member in members if member.data.startswith(b"\x7fELF")]
+    if len(binaries) != 1:
+        raise RuntimeError(
+            f"{name} ZIP must ship exactly one ARM binary, found: "
+            + (", ".join(sorted(member.path for member in binaries)) or "none")
+        )
+    binary = binaries[0]
+    validate_arm_binary(binary.path, binary.data)
+
+    folder = posixpath.dirname(binary.path)
+    if posixpath.dirname(folder) != SCRIPTS_CONFIG_FOLDER:
+        raise RuntimeError(
+            f"{name} binary must sit in a {SCRIPTS_CONFIG_FOLDER}/<app> folder: "
+            f"{binary.path}"
+        )
+
+    stray = sorted(
+        member.path
+        for member in members
+        if member.path != launcher.path and not member.path.startswith(f"{folder}/")
+    )
+    if stray:
+        raise RuntimeError(f"{name} ZIP installs outside {folder}/: " + ", ".join(stray))
+
+    packaged = sorted(
+        member.path
+        for member in members
+        if _is_user_owned(member.path, folder, user_owned)
+    )
+    if packaged:
+        raise RuntimeError(
+            f"{name} ZIP ships files that belong to the user, which an update "
+            "would overwrite: " + ", ".join(packaged)
+        )
+
+    # The launcher runs the binary from its absolute install path, so that path
+    # has to be exactly where the database installs it. The lookarounds keep a
+    # neighbouring path such as collection_launcher_debug from passing as a
+    # match.
+    expected = f"{MISTER_ROOT}{binary.path}"
+    reference = re.compile(rf"(?<![\w./-]){re.escape(expected)}(?![\w./-])")
+    if not reference.search(
+        expand_shell_variables(launcher.data.decode("utf-8", "replace"))
+    ):
+        raise RuntimeError(f"{name} launcher {launcher.path} does not run {expected}")
+
+    return ScriptsApp(
+        launcher=launcher,
+        binary=binary,
+        folder=folder,
+        files=tuple(
+            (member.path, member)
+            for member in sorted(members, key=lambda member: member.path)
+        ),
+    )
+
+
+def _is_user_owned(path: str, folder: str, user_owned: Sequence[str]) -> bool:
+    for owned in user_owned:
+        target = f"{folder}/{owned}"
+        if owned.endswith("/"):
+            if path.startswith(target):
+                return True
+        elif path == target:
+            return True
+    return False
 
 
 def build_selective_archive_database(
