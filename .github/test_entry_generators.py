@@ -315,7 +315,7 @@ class PhysicalDiscGeneratorTests(unittest.TestCase):
         cls.generator = load_generator("physical-disc")
 
     ROOT_FOLDER = "_Physical Disc Cores"
-    MAIN_BODY = "```ini\n[CD-*]\nmain=MiSTer_Physical-CD\n```\n"
+    MAIN_BODY = "```ini\n[A0CD-*]\nmain=MiSTer_Physical-CD\n```\n"
 
     def member(self, path: str, data: bytes = b"data"):
         return self.generator.ArchiveMember(
@@ -342,9 +342,9 @@ class PhysicalDiscGeneratorTests(unittest.TestCase):
         # is bundled inside the ZIP.
         return [
             self.member("MiSTer_Physical-CD"),
-            self.mgl("_Console/PSX", "CD-PSX"),
-            self.mgl("_Console/MegaCD", "CD-MegaCD"),
-            self.mgl(f"{self.ROOT_FOLDER}/Cores/CDi", "CD-CDi"),
+            self.mgl("_Console/PSX", "A0CD-PSX"),
+            self.mgl("_Console/MegaCD", "A0CD-MegaCD"),
+            self.mgl(f"{self.ROOT_FOLDER}/Cores/CDi", "A0CD-CDi"),
             self.member(f"{self.ROOT_FOLDER}/Cores/CDi.rbf"),
         ]
 
@@ -390,7 +390,7 @@ class PhysicalDiscGeneratorTests(unittest.TestCase):
         # Every packaged file installs: the main, all MGLs, and the CD-i core.
         self.assertEqual(sorted(member.path for member in members), sorted(destinations))
         self.assertIn(f"{self.ROOT_FOLDER}/Cores/CDi.rbf", destinations)
-        self.assertIn(f"{self.ROOT_FOLDER}/CD-PSX.mgl", destinations)
+        self.assertIn(f"{self.ROOT_FOLDER}/A0CD-PSX.mgl", destinations)
 
     def test_selects_the_compatible_zip_from_multiple_assets(self) -> None:
         release = {
@@ -438,14 +438,17 @@ class PhysicalDiscGeneratorTests(unittest.TestCase):
         self.assertTrue(archive.url.endswith("/MiSTer_Physical-CD.zip"))
 
     def test_rejects_main_zip_that_differs_from_release_instructions(self) -> None:
-        members = [self.member("MiSTer_Different"), self.mgl("_Console/PSX", "CD-PSX")]
+        members = [
+            self.member("MiSTer_Different"),
+            self.mgl("_Console/PSX", "A0CD-PSX"),
+        ]
         with self.assertRaisesRegex(RuntimeError, "but the ZIP contains"):
             self.build_main(members)
 
     def test_rejects_mgl_that_selects_a_missing_bundled_core(self) -> None:
         members = [
             self.member("MiSTer_Physical-CD"),
-            self.mgl(f"{self.ROOT_FOLDER}/Cores/CDi", "CD-CDi"),
+            self.mgl(f"{self.ROOT_FOLDER}/Cores/CDi", "A0CD-CDi"),
         ]
         with self.assertRaisesRegex(RuntimeError, "missing from the"):
             self.build_main(members)
@@ -453,19 +456,35 @@ class PhysicalDiscGeneratorTests(unittest.TestCase):
     def test_rejects_bundled_core_that_no_mgl_launches(self) -> None:
         members = [
             self.member("MiSTer_Physical-CD"),
-            self.mgl("_Console/PSX", "CD-PSX"),
+            self.mgl("_Console/PSX", "A0CD-PSX"),
             self.member(f"{self.ROOT_FOLDER}/Cores/CDi.rbf"),
         ]
         with self.assertRaisesRegex(RuntimeError, "no MGL launches"):
             self.build_main(members)
 
-    def test_rejects_mgl_without_cd_setname(self) -> None:
+    def test_rejects_mgl_without_a0cd_setname(self) -> None:
         members = [
             self.member("MiSTer_Physical-CD"),
             self.mgl("_Console/PSX", "PSX"),
         ]
-        with self.assertRaisesRegex(RuntimeError, r"CD-\* setname"):
+        with self.assertRaisesRegex(RuntimeError, r"A0CD-\* setname"):
             self.build_main(members)
+
+    def test_rejects_mgl_using_the_retired_cd_setname(self) -> None:
+        # The old CD-* namespace also matched the stock CD-i core setname, so
+        # upstream moved the launchers to A0CD-* and MiSTer.ini follows.
+        members = [
+            self.member("MiSTer_Physical-CD"),
+            self.mgl("_Console/PSX", "CD-PSX"),
+        ]
+        with self.assertRaisesRegex(RuntimeError, r"A0CD-\* setname"):
+            self.build_main(members)
+
+    def test_rejects_release_notes_using_the_retired_cd_section(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, r"\[A0CD-\*\] main="):
+            self.generator.main_setting_from_release_body(
+                "```ini\n[CD-*]\nmain=MiSTer_Physical-CD\n```\n"
+            )
 
 
 class SolarusGeneratorTests(unittest.TestCase):

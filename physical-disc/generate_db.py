@@ -60,7 +60,7 @@ def main_setting_from_release_body(body: str) -> str:
         if section:
             current_section = section.group(1).strip()
             continue
-        if current_section.casefold() != "cd-*":
+        if current_section.casefold() != "a0cd-*":
             continue
         setting = re.fullmatch(r"main\s*=\s*(\S+)", stripped, re.IGNORECASE)
         if setting:
@@ -70,7 +70,7 @@ def main_setting_from_release_body(body: str) -> str:
     if len(unique_settings) != 1:
         raise RuntimeError(
             "Main release notes must contain exactly one "
-            "[CD-*] main=<filename> setting"
+            "[A0CD-*] main=<filename> setting"
         )
     return settings[0]
 
@@ -102,10 +102,10 @@ def launcher_rbf_target(repository_name: str, mgl: ArchiveMember) -> str:
     if (
         len(setname_elements) != 1
         or setname_elements[0].get("same_dir") != "1"
-        or not (setname_elements[0].text or "").strip().upper().startswith("CD-")
+        or not (setname_elements[0].text or "").strip().upper().startswith("A0CD-")
     ):
         raise RuntimeError(
-            f"{repository_name} MGL must use a CD-* setname with "
+            f"{repository_name} MGL must use an A0CD-* setname with "
             f'same_dir="1": {mgl.path}'
         )
 

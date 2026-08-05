@@ -26,9 +26,13 @@ extract it to `/media/fat` on the MiSTer SD card, and run the MiSTer updaters.
 Add this section to `/media/fat/MiSTer.ini`:
 
 ```ini
-[CD-*]
+[A0CD-*]
 main=MiSTer_Physical-CD
 ```
+
+If you installed an earlier version of this database, replace the previous
+`[CD-*]` section with the one above. Upstream renamed the namespace because
+`CD-*` also matched the stock Philips CD-i core setname (`CD-i`).
 
 Use a supported USB optical drive that MiSTer exposes as `/dev/sr0`. Launch the
 desired system from `_Physical Disc Cores`, and insert your own compatible game
