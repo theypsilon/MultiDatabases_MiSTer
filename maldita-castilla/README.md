@@ -16,12 +16,13 @@ It omits only the ZIP's generic top-level `README.md`, which is not needed at
 runtime and would otherwise overwrite the same SD-card-root path used by other
 packages.
 
-The upstream bundle redistributes the game unmodified under
-[CC BY-NC-ND 4.0](https://creativecommons.org/licenses/by-nc-nd/4.0/), with
-Locomalito's credits and licence alongside it. Generation verifies those five
-reviewed game files against upstream's published provenance checksums and
-fails if they change, so a new payload requires an explicit licence and source
-review rather than being accepted silently.
+The original `game.droid` data is byte-identical to Locomalito's original
+`data.win`. Locomalito publishes the original game—not the commercial EX
+edition—under
+[CC BY-NC-ND 4.0](https://creativecommons.org/licenses/by-nc-nd/4.0/legalcode.en).
+That permits noncommercial sharing of unmodified material with attribution.
+See the [official game page](https://locomalito.com/games/maldita-castilla) and
+the [license terms](https://creativecommons.org/licenses/by-nc-nd/4.0/legalcode.en).
 
 ## Installation
 
