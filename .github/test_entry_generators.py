@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import io
+import json
 import unittest
+import zipfile
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
@@ -572,6 +576,264 @@ class SolarusGeneratorTests(unittest.TestCase):
         )
         self.assertIsNone(pattern.fullmatch("solarus-mister-v1.0.1-debug.zip"))
         self.assertIsNone(pattern.fullmatch("solarus-mister-source.zip"))
+
+
+class MalditaCastillaGeneratorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("maldita-castilla")
+
+    ARM_ELF = (
+        b"\x7fELF\x01\x01\x01" + bytes(9) + b"\x02\x00\x28\x00" + bytes(32)
+    )
+    ARM_BINARY = ARM_ELF + bytes(600_000) + b"GLIBC_2.29\0"
+
+    def member(self, path: str, data: bytes = b"data"):
+        return self.generator.ArchiveMember(
+            archive_path=path,
+            path=path,
+            data=data,
+        )
+
+    def apk(self) -> bytes:
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("lib/armeabi-v7a/libopenal.so", b"openal")
+            archive.writestr("lib/armeabi-v7a/libyoyo.so", b"runner")
+        return output.getvalue()
+
+    def release_members(self, *extra):
+        generator = self.generator
+        gles = self.ARM_ELF + b"gles"
+        contents = {
+            "README.md": b"release instructions",
+            "_Other/MalditaCastilla_20260808.rbf": bytes(1_000_000),
+            generator.LAUNCHER: (
+                b"#!/bin/bash\n"
+                b'CORENAME="Maldita Castilla"\n'
+                b'HANDLER="/media/fat/games/$CORENAME/launch.sh"\n'
+                b'RBF_GLOB="/media/fat/_Other/MalditaCastilla_*.rbf"\n'
+            ),
+            generator.CORES_MENU_SETUP: (
+                b"#!/bin/bash\n"
+                b'WRAPPER_DEFAULT="/media/fat/games/gmloader/MiSTer_Maldita"\n'
+                b'INI_DEFAULT="/media/fat/MiSTer.ini"\n'
+            ),
+            generator.ENGINE_LAUNCHER: (
+                b"#!/bin/bash\n"
+                b'GAMEDIR="/media/fat/games/gmloader"\n'
+                b"exec ./gmloader -c gmloader.json\n"
+            ),
+            generator.MEMORY_MODULE_LOADER: (
+                b"#!/bin/bash\n"
+                b'KERNEL="$(uname -r)"\n'
+                b'MODULE="mem_wc-$KERNEL.ko"\n'
+            ),
+            "games/Maldita Castilla/mem_wc-5.15.1-MiSTer.ko": self.ARM_ELF,
+            generator.ENGINE: self.ARM_BINARY,
+            generator.WRAPPER: (
+                self.ARM_BINARY
+                + f"/media/fat/{generator.ENGINE_LAUNCHER}".encode()
+            ),
+            generator.CONFIG: json.dumps(
+                {
+                    "save_dir": "saves",
+                    "apk_path": "mygame.apk",
+                    "blitter": 2,
+                    "force_platform": "os_android",
+                }
+            ).encode(),
+            generator.APK: self.apk(),
+            generator.GAME_DATA: b"original game data",
+            "games/gmloader/saves/options.ini": b"[Maldita Castilla]\n",
+            generator.LICENCE: (
+                b"Attribution-NonCommercial-NoDerivatives 4.0 International\n"
+            ),
+            generator.CREDITS: b"Maldita Castilla by Locomalito\n",
+            "games/gmloader/APKs/README.txt": b"user APK folder",
+            "games/gmloader/lib/armeabi-v7a/libstdc++.so": self.ARM_ELF,
+            "games/gmloader/libGLES_sw.so": gles,
+            "games/gmloader/mesa/libEGL.so.1": self.ARM_ELF,
+            "games/gmloader/mesa/libGLESv2.so.2": gles,
+            "games/gmloader/mesa/libdrm.so.2": self.ARM_ELF,
+            "games/gmloader/mesa/libglapi.so.0": self.ARM_ELF,
+            "games/gmloader/mesa/libtinfo.so.6": self.ARM_ELF,
+            "games/gmloader/mesa/swrast_dri.so": self.ARM_ELF,
+        }
+        return [self.member(path, data) for path, data in contents.items()] + list(
+            extra
+        )
+
+    def fixture_hashes(self, members) -> dict[str, str]:
+        by_path = {member.path: member for member in members}
+        return {
+            path: hashlib.sha256(by_path[path].data).hexdigest()
+            for path in self.generator.GAME_FILE_SHA256
+            if path in by_path
+        }
+
+    def select(self, members):
+        with patch.object(
+            self.generator,
+            "GAME_FILE_SHA256",
+            self.fixture_hashes(members),
+        ):
+            return self.generator.selected_files(members)
+
+    def replace(self, members, path: str, data: bytes):
+        return [
+            self.member(path, data) if member.path == path else member
+            for member in members
+        ]
+
+    def test_installs_the_runtime_but_not_the_generic_root_readme(self) -> None:
+        members = self.release_members()
+        selected = self.select(list(reversed(members)))
+
+        expected = sorted(
+            member.path for member in members if member.path != "README.md"
+        )
+        self.assertEqual(expected, [path for path, _ in selected])
+        self.assertEqual(23, len(selected))
+
+    def test_rejects_files_outside_the_mister_install_roots(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "outside its MiSTer folders"):
+            self.select(
+                self.release_members(self.member("build/debug-symbols.tar.gz"))
+            )
+
+    def test_rejects_unnamespaced_scripts_that_could_collide(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "unnamespaced Scripts entry"):
+            self.select(
+                self.release_members(
+                    self.member("Scripts/update_all.sh", b"#!/bin/bash\n")
+                )
+            )
+
+    def test_rejects_user_owned_and_daemon_controlled_files(self) -> None:
+        unsafe = (
+            "games/Maldita Castilla/_handler.sh",
+            "games/Maldita Castilla/takeover.env",
+            "games/gmloader/bench.env",
+            "games/gmloader/saves/slot1.sav",
+            "games/gmloader/APKs/MyGame.apk",
+        )
+        for path in unsafe:
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(RuntimeError, "user|daemon"):
+                    self.select(self.release_members(self.member(path)))
+
+    def test_rejects_case_collisions_that_are_ambiguous_on_fat(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "Case-colliding"):
+            self.select(
+                self.release_members(
+                    self.member("scripts/malditacastilla.sh", b"#!/bin/bash\n")
+                )
+            )
+
+    def test_rejects_a_second_or_undated_core(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "exactly one"):
+            self.select(
+                self.release_members(
+                    self.member(
+                        "_Other/MalditaCastilla_20260809.rbf", bytes(1_000_000)
+                    )
+                )
+            )
+
+        renamed = [
+            self.member("_Other/MalditaCastilla.rbf", member.data)
+            if member.path == "_Other/MalditaCastilla_20260808.rbf"
+            else member
+            for member in self.release_members()
+        ]
+        with self.assertRaisesRegex(RuntimeError, "unexpected files under _Other"):
+            self.select(renamed)
+
+    def test_rejects_a_missing_engine(self) -> None:
+        members = [
+            member
+            for member in self.release_members()
+            if member.path != self.generator.ENGINE
+        ]
+        with self.assertRaisesRegex(RuntimeError, self.generator.ENGINE):
+            self.select(members)
+
+    def test_rejects_an_incompatible_arm_engine(self) -> None:
+        members = self.replace(
+            self.release_members(), self.generator.ENGINE, b"MZ" + bytes(600_000)
+        )
+        with self.assertRaisesRegex(RuntimeError, "not an ELF"):
+            self.select(members)
+
+    def test_rejects_a_wrapper_without_the_launch_hook(self) -> None:
+        members = self.replace(
+            self.release_members(), self.generator.WRAPPER, self.ARM_BINARY
+        )
+        with self.assertRaisesRegex(RuntimeError, "main= wrapper"):
+            self.select(members)
+
+    def test_rejects_changed_game_bytes_until_they_are_reviewed(self) -> None:
+        members = self.release_members()
+        expected = self.fixture_hashes(members)
+        changed = self.replace(members, self.generator.GAME_DATA, b"changed")
+
+        with patch.object(self.generator, "GAME_FILE_SHA256", expected):
+            with self.assertRaisesRegex(RuntimeError, "reviewed, unmodified"):
+                self.generator.selected_files(changed)
+
+    def test_release_bundle_version_must_match_the_release_tag(self) -> None:
+        release = {
+            "tag_name": "v1.2.3",
+            "assets": [
+                {
+                    "name": "MalditaCastilla-MiSTer-v1.2.3.zip",
+                    "browser_download_url": (
+                        "https://github.com/gmcnaught/maldita.castilla-mister/"
+                        "releases/"
+                        "download/v1.2.3/MalditaCastilla-MiSTer-v1.2.3.zip"
+                    ),
+                }
+            ],
+        }
+        asset, version = self.generator.release_asset(release)
+        self.assertEqual("v1.2.3", version)
+        self.assertEqual(release["assets"][0], asset)
+
+        release["tag_name"] = "v1.2.4"
+        with self.assertRaisesRegex(RuntimeError, "version differ"):
+            self.generator.release_asset(release)
+
+        release["tag_name"] = "v1.2.3"
+        release["assets"].append(dict(release["assets"][0]))
+        with self.assertRaisesRegex(RuntimeError, "exactly one"):
+            self.generator.release_asset(release)
+
+    def test_download_validation_checks_digest_and_expansion_limits(self) -> None:
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("file.bin", b"four")
+        data = output.getvalue()
+        asset = {
+            "size": len(data),
+            "digest": f"sha256:{hashlib.sha256(data).hexdigest()}",
+        }
+
+        with patch.object(self.generator, "MIN_ARCHIVE_SIZE", 0):
+            self.generator.validate_archive_download(asset, data)
+            with self.assertRaisesRegex(RuntimeError, "SHA-256"):
+                self.generator.validate_archive_download(
+                    {**asset, "digest": f"sha256:{'0' * 64}"}, data
+                )
+            with patch.object(self.generator, "MAX_MEMBER_SIZE", 3):
+                with self.assertRaisesRegex(RuntimeError, "Oversized file"):
+                    self.generator.validate_archive_download(asset, data)
+
+    def test_keeps_the_database_url_uncompressed(self) -> None:
+        source = (ROOT / "maldita-castilla" / "generate_db.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("compressed_db_url=True", source)
 
 
 class MisterDiscGeneratorTests(unittest.TestCase):
