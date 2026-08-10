@@ -17,6 +17,12 @@
   incremental change nor an entry later growing past 10 KB reopens the choice.
 - Prefer the latest published release/version, but validate its expected files
   and layout before accepting it. Install only files intended for MiSTer.
+- Treat release notes and descriptions as human-facing prose, never as a
+  machine-readable interface. Do not parse them for filenames, paths,
+  configuration values, versions, or selection rules. Use structured release
+  metadata and validate immutable artifacts instead; if a required value
+  cannot be derived unambiguously, encode the reviewed value in the generator
+  and fail closed when upstream changes it.
 - Emitted payload URLs must be immutable: use a concrete GitHub release tag or
   a raw GitHub URL pinned to a full 40-character commit. Never emit branch,
   `latest`, query-string, or other ephemeral URLs. Moving APIs may be used for

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import posixpath
-import re
 import sys
 import xml.etree.ElementTree as ElementTree
 import zipfile
@@ -31,6 +30,7 @@ FOLDER = "physical-disc"
 UPSTREAM_OWNER = "Anime0t4ku"
 MAIN_REPOSITORY = "Main_MiSTer_Physical_Disc"
 ARCHIVE_ID = "physical-cd"
+MAIN_EXECUTABLE = "MiSTer_Physical-CD"
 
 
 def zip_assets(
@@ -48,31 +48,6 @@ def zip_assets(
             f"{repository} release {tag} does not contain a ZIP asset"
         )
     return tuple(assets)
-
-
-def main_setting_from_release_body(body: str) -> str:
-    current_section = ""
-    settings: list[str] = []
-
-    for line in body.splitlines():
-        stripped = line.strip()
-        section = re.fullmatch(r"\[([^\]]+)\]", stripped)
-        if section:
-            current_section = section.group(1).strip()
-            continue
-        if current_section.casefold() != "a0cd-*":
-            continue
-        setting = re.fullmatch(r"main\s*=\s*(\S+)", stripped, re.IGNORECASE)
-        if setting:
-            settings.append(setting.group(1))
-
-    unique_settings = set(settings)
-    if len(unique_settings) != 1:
-        raise RuntimeError(
-            "Main release notes must contain exactly one "
-            "[A0CD-*] main=<filename> setting"
-        )
-    return settings[0]
 
 
 def _xml_elements(root: ElementTree.Element, name: str) -> list[ElementTree.Element]:
@@ -116,7 +91,7 @@ def launcher_rbf_target(repository_name: str, mgl: ArchiveMember) -> str:
 
 def main_archive(
     repository_name: str,
-    release: dict[str, Any],
+    release_tag: str,
     archive_url: str,
     archive_data: bytes,
     members: list[ArchiveMember],
@@ -131,13 +106,11 @@ def main_archive(
             f"{repository_name} ZIP must contain one root-level MiSTer executable"
         )
     executable = executables[0]
-    configured_main = main_setting_from_release_body(
-        str(release.get("body") or "")
-    )
-    if configured_main != executable.path:
+    if executable.path != MAIN_EXECUTABLE:
         raise RuntimeError(
-            f"{repository_name} release notes select {configured_main}, "
-            f"but the ZIP contains {executable.path}"
+            f"{repository_name} ZIP main executable changed: expected "
+            f"{MAIN_EXECUTABLE}, found {executable.path}; review the generator "
+            "and installation instructions before accepting the new contract"
         )
 
     mgls = [member for member in members if member.path.lower().endswith(".mgl")]
@@ -203,13 +176,12 @@ def main_archive(
         )
 
     selected = (executable, *sorted(mgls + rbfs, key=lambda member: member.path))
-    tag = str(release.get("tag_name") or release.get("name") or "unknown")
     return SelectiveArchive(
         archive_id=ARCHIVE_ID,
         url=archive_url,
         data=archive_data,
         selected_files=tuple((member.path, member) for member in selected),
-        description=f"Installing {repository_name} {tag}",
+        description=f"Installing {repository_name} {release_tag}",
         reboot_paths=(executable.path,),
     )
 
@@ -217,6 +189,9 @@ def main_archive(
 def release_archive(repository: str) -> SelectiveArchive:
     repository_name = repository.rsplit("/", 1)[-1]
     release = github_latest_release(repository)
+    release_tag = str(release.get("tag_name") or "")
+    if not release_tag:
+        raise RuntimeError(f"{repository} latest release has no tag_name")
     compatible: list[SelectiveArchive] = []
     rejected: list[str] = []
 
@@ -228,7 +203,7 @@ def release_archive(repository: str) -> SelectiveArchive:
             members = read_archive_members(archive_data)
             archive = main_archive(
                 repository_name,
-                release,
+                release_tag,
                 archive_url,
                 archive_data,
                 members,

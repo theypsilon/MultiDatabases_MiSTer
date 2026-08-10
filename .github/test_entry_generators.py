@@ -319,7 +319,6 @@ class PhysicalDiscGeneratorTests(unittest.TestCase):
         cls.generator = load_generator("physical-disc")
 
     ROOT_FOLDER = "_Physical Disc Cores"
-    MAIN_BODY = "```ini\n[A0CD-*]\nmain=MiSTer_Physical-CD\n```\n"
 
     def member(self, path: str, data: bytes = b"data"):
         return self.generator.ArchiveMember(
@@ -355,7 +354,7 @@ class PhysicalDiscGeneratorTests(unittest.TestCase):
     def build_main(self, members):
         return self.generator.main_archive(
             "Main_MiSTer_Physical_Disc",
-            {"tag_name": "v0.30", "body": self.MAIN_BODY},
+            "v0.30",
             (
                 "https://github.com/Anime0t4ku/Main_MiSTer_Physical_Disc/"
                 "releases/download/v0.30/MiSTer_Physical-CD.zip"
@@ -396,10 +395,11 @@ class PhysicalDiscGeneratorTests(unittest.TestCase):
         self.assertIn(f"{self.ROOT_FOLDER}/Cores/CDi.rbf", destinations)
         self.assertIn(f"{self.ROOT_FOLDER}/A0CD-PSX.mgl", destinations)
 
-    def test_selects_the_compatible_zip_from_multiple_assets(self) -> None:
+    def test_selects_compatible_zip_without_parsing_release_notes(self) -> None:
         release = {
             "tag_name": "v0.30",
-            "body": self.MAIN_BODY,
+            # Human-facing prose must not influence artifact selection.
+            "body": "[A0CD-*]\nmain=MiSTer_Untrusted-Release-Note\n",
             "assets": [
                 {
                     "name": "documentation.zip",
@@ -441,12 +441,12 @@ class PhysicalDiscGeneratorTests(unittest.TestCase):
 
         self.assertTrue(archive.url.endswith("/MiSTer_Physical-CD.zip"))
 
-    def test_rejects_main_zip_that_differs_from_release_instructions(self) -> None:
+    def test_rejects_an_unreviewed_main_executable_rename(self) -> None:
         members = [
             self.member("MiSTer_Different"),
             self.mgl("_Console/PSX", "A0CD-PSX"),
         ]
-        with self.assertRaisesRegex(RuntimeError, "but the ZIP contains"):
+        with self.assertRaisesRegex(RuntimeError, "expected MiSTer_Physical-CD"):
             self.build_main(members)
 
     def test_rejects_mgl_that_selects_a_missing_bundled_core(self) -> None:
@@ -483,13 +483,6 @@ class PhysicalDiscGeneratorTests(unittest.TestCase):
         ]
         with self.assertRaisesRegex(RuntimeError, r"A0CD-\* setname"):
             self.build_main(members)
-
-    def test_rejects_release_notes_using_the_retired_cd_section(self) -> None:
-        with self.assertRaisesRegex(RuntimeError, r"\[A0CD-\*\] main="):
-            self.generator.main_setting_from_release_body(
-                "```ini\n[CD-*]\nmain=MiSTer_Physical-CD\n```\n"
-            )
-
 
 class SolarusGeneratorTests(unittest.TestCase):
     @classmethod
