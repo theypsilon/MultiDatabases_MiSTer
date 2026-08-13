@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import importlib.util
 import io
 import json
@@ -49,6 +50,8 @@ INVALID_EXACT_PATHS = {
 INVALID_ROOT_FOLDERS = {"linux", "saves", "savestates", "screenshots", "downloader"}
 MD5_RE = re.compile(r"^[0-9a-f]{32}$")
 GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+DOWNLOAD_RETRY_DELAYS_SECONDS = (1, 2, 4)
+RETRYABLE_HTTP_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 SCRIPTS_FOLDER = "Scripts"
 SCRIPTS_CONFIG_FOLDER = "Scripts/.config"
@@ -198,14 +201,39 @@ def http_get_bytes(url: str, *, accept: str = "application/octet-stream") -> byt
             headers["Authorization"] = f"Bearer {token}"
             headers["X-GitHub-Api-Version"] = "2022-11-28"
 
-    request = urllib.request.Request(url, headers=headers)
-    try:
-        with urllib.request.urlopen(request, timeout=120) as response:
-            return response.read()
-    except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"HTTP {exc.code} while downloading {url}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"Unable to download {url}: {exc.reason}") from exc
+    attempts = len(DOWNLOAD_RETRY_DELAYS_SECONDS) + 1
+    for attempt in range(attempts):
+        request = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                return response.read()
+        except urllib.error.HTTPError as exc:
+            if exc.code not in RETRYABLE_HTTP_STATUSES or attempt == attempts - 1:
+                raise RuntimeError(
+                    f"HTTP {exc.code} while downloading {url}"
+                ) from exc
+            failure = f"HTTP {exc.code}"
+        except (
+            urllib.error.URLError,
+            ConnectionError,
+            TimeoutError,
+            http.client.HTTPException,
+        ) as exc:
+            reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+            if attempt == attempts - 1:
+                raise RuntimeError(f"Unable to download {url}: {reason}") from exc
+            failure = str(reason)
+
+        delay = DOWNLOAD_RETRY_DELAYS_SECONDS[attempt]
+        print(
+            f"Transient download failure for {url}: {failure}; "
+            f"retrying in {delay}s (attempt {attempt + 2}/{attempts})",
+            file=sys.stderr,
+            flush=True,
+        )
+        time.sleep(delay)
+
+    raise AssertionError("download retry loop ended unexpectedly")
 
 
 def github_json(url: str) -> Any:

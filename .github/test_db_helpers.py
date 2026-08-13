@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import tempfile
 import unittest
+import urllib.error
+from io import BytesIO, StringIO
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import db_helpers
 from db_helpers import (
@@ -18,6 +21,7 @@ from db_helpers import (
     database_url,
     expand_shell_variables,
     github_raw_url,
+    http_get_bytes,
     read_scripts_app,
     release_tag,
     shell_variable,
@@ -218,6 +222,64 @@ class PayloadUrlTests(unittest.TestCase):
             with self.subTest(url=url):
                 with self.assertRaisesRegex(RuntimeError, "commit|concrete"):
                     validate_payload_url(url)
+
+
+class HttpGetBytesTests(unittest.TestCase):
+    URL = "https://github.com/example/project/releases/download/v1/file.zip"
+
+    def http_error(self, status: int) -> urllib.error.HTTPError:
+        return urllib.error.HTTPError(
+            self.URL,
+            status,
+            "test failure",
+            {},
+            None,
+        )
+
+    def test_retries_transient_http_and_connection_failures(self) -> None:
+        effects = [
+            self.http_error(503),
+            http.client.RemoteDisconnected("connection dropped"),
+            BytesIO(b"payload"),
+        ]
+        with patch.object(
+            db_helpers.urllib.request, "urlopen", side_effect=effects
+        ) as urlopen, patch.object(db_helpers.time, "sleep") as sleep, patch.object(
+            db_helpers.sys, "stderr", new=StringIO()
+        ):
+            self.assertEqual(b"payload", http_get_bytes(self.URL))
+
+        self.assertEqual(3, urlopen.call_count)
+        self.assertEqual([call(1), call(2)], sleep.call_args_list)
+
+    def test_stops_retrying_after_the_bounded_attempts(self) -> None:
+        failures = [
+            http.client.RemoteDisconnected("connection dropped") for _ in range(4)
+        ]
+        with patch.object(
+            db_helpers.urllib.request, "urlopen", side_effect=failures
+        ) as urlopen, patch.object(db_helpers.time, "sleep") as sleep, patch.object(
+            db_helpers.sys, "stderr", new=StringIO()
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "Unable to download .*connection dropped"
+            ):
+                http_get_bytes(self.URL)
+
+        self.assertEqual(4, urlopen.call_count)
+        self.assertEqual([call(1), call(2), call(4)], sleep.call_args_list)
+
+    def test_does_not_retry_a_permanent_http_error(self) -> None:
+        with patch.object(
+            db_helpers.urllib.request,
+            "urlopen",
+            side_effect=self.http_error(404),
+        ) as urlopen, patch.object(db_helpers.time, "sleep") as sleep:
+            with self.assertRaisesRegex(RuntimeError, "HTTP 404 while downloading"):
+                http_get_bytes(self.URL)
+
+        self.assertEqual(1, urlopen.call_count)
+        sleep.assert_not_called()
 
 
 class ScriptsAppTests(unittest.TestCase):
