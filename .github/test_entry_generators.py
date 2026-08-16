@@ -312,6 +312,78 @@ class CollectionLauncherGeneratorTests(ScriptsAppEntryTests, unittest.TestCase):
             self.generator.extra_folders(renamed),
         )
 
+class DiscToolsGeneratorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("disc-tools")
+
+    ARM_BINARY = (
+        b"\x7fELF\x01\x01\x01" + bytes(9) + b"\x02\x00\x28\x00" + bytes(600_000)
+    )
+    ARM_HELPER = b"\x7fELF\x01\x01\x01" + bytes(9) + b"\x02\x00\x28\x00" + bytes(64)
+
+    def member(self, path: str, data: bytes = b"data"):
+        return self.generator.ArchiveMember(archive_path=path, path=path, data=data)
+
+    def release_members(self, *extra):
+        launcher = (
+            b"#!/bin/bash\n"
+            b'VERSION="1.0.0"\n'
+            b'BASE="/media/fat/Scripts/.config/disctools"\n'
+            b'BIN="$BASE/disctools"\n'
+            b'exec "$BIN" "$@"\n'
+        )
+        return [
+            self.member(self.generator.LAUNCHER, launcher),
+            self.member(self.generator.MAIN_BINARY, self.ARM_BINARY),
+            *[
+                self.member(path, self.ARM_HELPER)
+                for path in self.generator.HELPERS
+            ],
+            self.member(f"{self.generator.APP_FOLDER}/licenses/GPL-2.0.txt", b"GPL"),
+            *extra,
+        ]
+
+    def test_installs_the_complete_release_zip_payload(self) -> None:
+        members = self.release_members()
+        selected = self.generator.selected_files(list(reversed(members)))
+        self.assertEqual(
+            sorted(member.path for member in members),
+            [destination for destination, _ in selected],
+        )
+
+    def test_rejects_files_outside_the_packaged_mister_layout(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "installs outside"):
+            self.generator.selected_files(
+                self.release_members(self.member("README.md", b"source tree"))
+            )
+
+    def test_rejects_files_inside_runtime_log_or_temp_directories(self) -> None:
+        for path in (
+            f"{self.generator.APP_FOLDER}/logs/disctools.log",
+            f"{self.generator.APP_FOLDER}/temp/work.bin",
+        ):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(RuntimeError, "runtime log/temp"):
+                    self.generator.selected_files(
+                        self.release_members(self.member(path, b"runtime"))
+                    )
+
+    def test_requires_every_bundled_helper(self) -> None:
+        missing = self.generator.HELPERS[0]
+        members = [m for m in self.release_members() if m.path != missing]
+        with self.assertRaisesRegex(RuntimeError, "missing required files"):
+            self.generator.selected_files(members)
+
+    def test_rejects_non_arm_helper_binaries(self) -> None:
+        helper = self.generator.HELPERS[-1]
+        members = [
+            self.member(m.path, b"not-arm" if m.path == helper else m.data)
+            for m in self.release_members()
+        ]
+        with self.assertRaisesRegex(RuntimeError, "not a 32-bit little-endian ARM ELF"):
+            self.generator.selected_files(members)
+
 
 class PhysicalDiscGeneratorTests(unittest.TestCase):
     @classmethod
