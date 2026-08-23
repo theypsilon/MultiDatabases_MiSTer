@@ -963,5 +963,147 @@ class MisterDiscGeneratorTests(unittest.TestCase):
         self.assertNotIn("hotkey.cfg", joined)
 
 
+class MegaVgmDriveReleaseTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("megavgmdrive")
+
+    STABLE_DATE = "2026-07-29T15:20:37Z"
+    NEWER_DATE = "2026-08-23T13:32:59Z"
+    OLDER_DATE = "2026-07-23T04:06:42Z"
+
+    def release(self, tag: str, *assets: str, date: str, **flags):
+        return {
+            "tag_name": tag,
+            "published_at": date,
+            "draft": flags.get("draft", False),
+            "prerelease": flags.get("prerelease", False),
+            "assets": [
+                {
+                    "name": name,
+                    "browser_download_url": (
+                        "https://github.com/dai-VGM/MegaVGMDrive/releases/"
+                        f"download/{tag}/{name}"
+                    ),
+                }
+                for name in assets
+            ],
+        }
+
+    def stable_release(self, *assets: str):
+        """The newest stable release, shipping its core unless told otherwise."""
+        if not assets:
+            assets = ("MegaVGMDrive_MiSTer_v1.0.1.rbf", "SHA256SUMS.txt")
+        return self.release("v1.0.1", *assets, date=self.STABLE_DATE)
+
+    def select(self, *releases):
+        return self.generator.select_core_release(list(releases))
+
+    def test_follows_the_highest_stable_release(self) -> None:
+        release, asset = self.select(
+            self.stable_release(),
+            self.release(
+                "v1.0", "MegaVGMDrive_MiSTer_v1.0.rbf", date="2026-07-29T08:50:42Z"
+            ),
+        )
+        self.assertEqual("v1.0.1", release["tag_name"])
+        self.assertEqual("MegaVGMDrive_MiSTer_v1.0.1.rbf", asset["name"])
+
+    def test_ignores_a_newer_snapshot_that_ships_no_core(self) -> None:
+        release, _ = self.select(
+            self.release("YM2610-2160-beta", date=self.NEWER_DATE),
+            self.release(
+                "YM2610-player-beta", "MegaVGMPlayer_beta.zip", date=self.NEWER_DATE
+            ),
+            self.stable_release(),
+        )
+        self.assertEqual("v1.0.1", release["tag_name"])
+
+    def test_rejects_a_newer_snapshot_that_ships_a_core(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "YM2610-2160-beta"):
+            self.select(
+                self.release(
+                    "YM2610-2160-beta",
+                    "VGM_MD_MiSTer_YM2610.rbf",
+                    date=self.NEWER_DATE,
+                ),
+                self.stable_release(),
+            )
+
+    def test_ignores_a_reviewed_snapshot_that_ships_a_core(self) -> None:
+        with patch.object(
+            self.generator, "REVIEWED_SNAPSHOTS", ("YM2610-2160-beta",)
+        ):
+            release, _ = self.select(
+                self.release(
+                    "YM2610-2160-beta",
+                    "VGM_MD_MiSTer_YM2610.rbf",
+                    date=self.NEWER_DATE,
+                ),
+                self.stable_release(),
+            )
+        self.assertEqual("v1.0.1", release["tag_name"])
+
+    def test_ignores_snapshots_superseded_by_the_stable_release(self) -> None:
+        release, _ = self.select(
+            self.stable_release(),
+            self.release(
+                "audio-gold-ym2203-segapcm",
+                "MegaVGMdrive_MiSTer_20260723.rbf",
+                date=self.OLDER_DATE,
+            ),
+        )
+        self.assertEqual("v1.0.1", release["tag_name"])
+
+    def test_ignores_prereleases_and_drafts(self) -> None:
+        release, _ = self.select(
+            self.release(
+                "v2.0",
+                "MegaVGMDrive_MiSTer_v2.0.rbf",
+                date=self.NEWER_DATE,
+                prerelease=True,
+            ),
+            self.release(
+                "crt-15khz-test",
+                "VGM_MD_MiSTer_CRT.rbf",
+                date=self.NEWER_DATE,
+                prerelease=True,
+            ),
+            self.release(
+                "v1.1", "MegaVGMDrive_MiSTer_v1.1.rbf", date=self.NEWER_DATE, draft=True
+            ),
+            self.stable_release(),
+        )
+        self.assertEqual("v1.0.1", release["tag_name"])
+
+    def test_rejects_the_newest_stable_release_without_a_core(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "found: none"):
+            self.select(
+                self.stable_release("MegaVGMPlayer_v1.0.1.zip", "SHA256SUMS.txt")
+            )
+
+    def test_rejects_a_stable_release_whose_core_was_renamed(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "MegaVGMDrive_v1.0.1.rbf"):
+            self.select(self.stable_release("MegaVGMDrive_v1.0.1.rbf"))
+
+    def test_rejects_a_stable_release_shipping_several_cores(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "exactly one"):
+            self.select(
+                self.stable_release(
+                    "MegaVGMDrive_MiSTer_v1.0.1.rbf",
+                    "MegaVGMDrive_MiSTer_CRT_v1.0.1.rbf",
+                )
+            )
+
+    def test_rejects_a_release_list_without_a_stable_release(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "No stable"):
+            self.select(
+                self.release("YM2610-2160-beta", date=self.NEWER_DATE),
+                self.release(
+                    "audio-gold", "MegaVGMdrive_MiSTer.rbf", date=self.OLDER_DATE
+                ),
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

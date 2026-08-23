@@ -17,6 +17,14 @@
   incremental change nor an entry later growing past 10 KB reopens the choice.
 - Prefer the latest published release/version, but validate its expected files
   and layout before accepting it. Install only files intended for MiSTer.
+- Prefer a loud failure over silently freezing on a stale version. Skipping an
+  upstream release stays silent only when upstream marks it a draft or
+  prerelease, or when it carries nothing the entry could install. Anything else
+  that would leave a database parked on an older version must fail the
+  generator: the expected artifact vanishing, being renamed, or becoming
+  ambiguous, and a newer release that does carry a payload being passed over.
+  Record a deliberate exception as a reviewed constant in the generator instead
+  of widening the selection rule.
 - Treat release notes and descriptions as human-facing prose, never as a
   machine-readable interface. Do not parse them for filenames, paths,
   configuration values, versions, or selection rules. Use structured release

@@ -7,8 +7,14 @@
 - Database URL:
   `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/megavgmdrive/db.json`
 
-The generator follows the `VGM_MD_MiSTer.rbf` asset in the latest GitHub
-release. It installs that core and `MegaVGMDrive.mgl`, creates
+The generator follows the MiSTer core `.rbf` asset of the highest
+version-tagged upstream release. Upstream also publishes beta snapshots as
+ordinary releases, sometimes without any asset, so snapshots are skipped, but
+never quietly: generation fails instead of keeping an older core when the
+newest stable release stops shipping its core or renames it, or when a
+snapshot published after it carries one. Reviewed snapshot tags are recorded
+in the generator's `REVIEWED_SNAPSHOTS`. The generator installs the selected
+core and `MegaVGMDrive.mgl`, creates
 `games/MegaVGMDrive`, and marks core changes as requiring a reboot. The
 launcher is maintained in this folder and served from the repository's `main`
 branch.
