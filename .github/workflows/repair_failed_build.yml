@@ -59,7 +59,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           base_branch: main
           branch_prefix: repair/
           claude_args: |
@@ -78,8 +78,12 @@ jobs:
             updated. `gh run view --log` gives the whole run if you need more
             than the failing step.
 
-            This repository's guidelines are in GUIDELINES.md (loaded for you
-            as CLAUDE.md). Follow them. Two of them decide most of this work:
+            Read GUIDELINES.md before anything else. It is the authoritative
+            source of truth for how this repository generates and publishes
+            databases, and it governs every change you make here. Where this
+            prompt and GUIDELINES.md disagree, GUIDELINES.md wins: what follows
+            is a reminder of the two rules that decide most of this work, not a
+            substitute for reading the file.
 
             - A generator is meant to fail loudly rather than silently freeze
               on a stale version. A red build is often that gate working as
@@ -87,11 +91,21 @@ jobs:
             - Release notes and descriptions are human-facing prose, never a
               machine-readable interface.
 
-            So do not relax a selection rule, widen a regex, or record a
-            snapshot as reviewed just to make the build green. If the failure
-            is a deliberate gate, the right output is a pull request that
-            explains what upstream changed and proposes the reviewed value,
-            for a human to accept or reject.
+            Its other rules bind you just as much - immutable payload URLs, a
+            published db_url that never changes, the README requirements, the
+            publication invariants - so check the file against the case in
+            front of you instead of working from this summary. If it genuinely
+            does not cover the situation, say so in the pull request and
+            propose the rule it is missing; do not invent a local convention.
+
+            So do not relax a selection rule or widen a regex to make the
+            build green. Recording a deliberate exception as a reviewed
+            constant is the mechanism GUIDELINES.md prescribes, but "reviewed"
+            means reviewed by a human: propose the value in the pull request,
+            never record one yourself to turn the build green. If the failure
+            is a deliberate gate, that pull request - explaining what upstream
+            changed and proposing the value for a human to accept or reject -
+            is the whole deliverable.
 
             For evidence you have the full history of main. The published
             branches are not checked out, but the checkout kept its
@@ -134,8 +148,39 @@ jobs:
                must review an upstream change, say so plainly and propose the
                specific value to review rather than a workaround.
 
-            Keep the change minimal and scoped to the failing entry. Never
-            touch the db or db-releases branches.
+            Keep the scope on the failure: fix what broke, not other things
+            you notice on the way. Within that scope the shared
+            `.github/db_helpers.py` is fair game - fix the defect where it
+            really is rather than duplicating shared logic into an entry to
+            keep the diff small.
+
+            If you do change shared code, prove it did not disturb the other
+            databases before you open the pull request. Generate every entry
+            twice, once from main and once with your change, both seeded from
+            the published bundles and pinned to the same timestamp:
+
+                git worktree add /tmp/base origin/main
+                for out in /tmp/base-out /tmp/fixed-out; do
+                  mkdir -p "$out" && git archive origin/db | tar -x -C "$out"
+                done
+                python3 /tmp/base/.github/generate_all.py \
+                  --output /tmp/base-out --timestamp 1700000000
+                python3 .github/generate_all.py \
+                  --output /tmp/fixed-out --timestamp 1700000000
+                for e in /tmp/base-out/*/; do
+                  n=$(basename "$e")
+                  cmp -s "$e/db.json" "/tmp/fixed-out/$n/db.json" \
+                    || echo "MOVED: $n"
+                done
+
+            Only the entry you fixed may be listed. Compare `db.json` and not
+            the whole bundle: a pinned timestamp makes `db.json` reproducible,
+            but the ZIPs embed a wall-clock time and differ between runs even
+            with identical input. Generate the baseline the same way rather
+            than comparing against `origin/db` directly, or an entry that
+            merely had an upstream release since the last publish will look
+            like your regression. Report in the pull request that you ran this
+            and what moved. Never touch the db or db-releases branches.
 
       - name: Label and verify the repair pull request
         if: steps.guard.outputs.proceed == 'true' && steps.claude.outputs.branch_name != ''
