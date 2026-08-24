@@ -71,6 +71,7 @@ jobs:
 
       - name: Publish orphan db branch
         id: publish
+        if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail

@@ -1,0 +1,184 @@
+name: Repair failed database build
+
+on:
+  workflow_run:
+    workflows: ["Build custom databases"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: multi-databases-repair
+  cancel-in-progress: false
+
+env:
+  REPAIR_LABEL: auto-repair
+
+jobs:
+  repair:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Skip while a repair pull request is open
+        id: guard
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # The build runs every 20 minutes, so a red build fires this workflow
+          # again and again. One open repair pull request is enough: stop here
+          # until it is merged or closed.
+          open=$(gh pr list --state open --label "$REPAIR_LABEL" \
+            --json number --jq 'map(.number) | join(", ")')
+          if [ -n "$open" ]; then
+            echo "Repair pull request already open (#$open); nothing to do"
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Check out source branch
+        if: steps.guard.outputs.proceed == 'true'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Ask Claude for a fix
+        id: claude
+        if: steps.guard.outputs.proceed == 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          base_branch: main
+          branch_prefix: repair/
+          claude_args: |
+            --model claude-opus-5
+            --effort xhigh
+            --allowedTools Read,Edit,Write,Bash,Grep,Glob,WebFetch,WebSearch
+          prompt: |
+            The scheduled "Build custom databases" workflow failed:
+            ${{ github.event.workflow_run.html_url }}
+
+            Pull the logs yourself, run id ${{ github.event.workflow_run.id }}:
+
+                gh run view ${{ github.event.workflow_run.id }} --log-failed
+
+            Its `.build/failures.txt` names the entries that could not be
+            updated. `gh run view --log` gives the whole run if you need more
+            than the failing step.
+
+            This repository's guidelines are in GUIDELINES.md (loaded for you
+            as CLAUDE.md). Follow them. Two of them decide most of this work:
+
+            - A generator is meant to fail loudly rather than silently freeze
+              on a stale version. A red build is often that gate working as
+              designed, asking a human to review what upstream did.
+            - Release notes and descriptions are human-facing prose, never a
+              machine-readable interface.
+
+            So do not relax a selection rule, widen a regex, or record a
+            snapshot as reviewed just to make the build green. If the failure
+            is a deliberate gate, the right output is a pull request that
+            explains what upstream changed and proposes the reviewed value,
+            for a human to accept or reject.
+
+            For evidence you have the full history of main. The published
+            branches are not checked out, but the checkout kept its
+            credentials, so fetch them yourself, read-only:
+
+                git fetch --depth=1 origin +refs/heads/db:refs/remotes/origin/db
+                git fetch --depth=1 origin \
+                  +refs/heads/db-releases:refs/remotes/origin/db-releases
+
+            - `origin/db` is what users are served right now. Regenerate the
+              failing entry and diff it against
+              `git show origin/db:<entry>/db.json`, ignoring the `timestamp`
+              field, to prove whether your change is a real change or a no-op.
+              A fix that leaves the bundle byte-identical is strong evidence it
+              restored the previous behaviour rather than moving users.
+            - `origin/db-releases` logs every publication in `commits.txt`,
+              and in `<entry>/commits.txt` for each entry whose bundle has
+              changed since tracking started, so you can see when that database
+              last moved. A missing per-entry file means it has not moved,
+              which is itself useful evidence.
+
+            Use `gh api` for upstream release metadata - tags, assets, dates,
+            draft and prerelease flags. WebFetch and WebSearch are there to
+            help you understand what upstream did and explain it in the pull
+            request, never to source a value: decide from structured metadata
+            and validated artifacts, never from release notes, announcements or
+            forum prose. Do not push either orphan branch; they are here to
+            read.
+
+            Work out what actually broke, then:
+
+            1. Fix it if it is a genuine defect, following the guidelines,
+               including the entry README and focused tests under
+               .github/test_entry_generators.py.
+            2. Verify with `python3 -m unittest discover -s .github -p "test_*.py"`
+               and by running the affected entry's generator.
+            3. Open a pull request. In the body, state what upstream changed,
+               which guideline governs the decision, why the change respects
+               it, and what you verified. If the correct answer is that a human
+               must review an upstream change, say so plainly and propose the
+               specific value to review rather than a workaround.
+
+            Keep the change minimal and scoped to the failing entry. Never
+            touch the db or db-releases branches.
+
+      - name: Label and verify the repair pull request
+        if: steps.guard.outputs.proceed == 'true' && steps.claude.outputs.branch_name != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ steps.claude.outputs.branch_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pr=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // ""')
+          if [ -z "$pr" ]; then
+            echo "Claude opened no pull request for $BRANCH; nothing to verify"
+            exit 0
+          fi
+
+          gh label create "$REPAIR_LABEL" --color B60205 \
+            --description "Automated repair of a failed database build" \
+            > /dev/null 2>&1 || true
+          gh pr edit "$pr" --add-label "$REPAIR_LABEL"
+
+          # A pull request opened with GITHUB_TOKEN does not start a push
+          # build, but workflow_dispatch is the documented exception, so the
+          # branch gets a real run of the pipeline. The publish step is
+          # restricted to main, so this verifies without touching db.
+          gh workflow run build_databases.yml --ref "$BRANCH"
+
+          run_id=""
+          for _ in $(seq 1 12); do
+            sleep 10
+            run_id=$(gh run list --workflow build_databases.yml --branch "$BRANCH" \
+              --limit 1 --json databaseId --jq '.[0].databaseId // ""')
+            [ -n "$run_id" ] && break
+          done
+          if [ -z "$run_id" ]; then
+            gh pr comment "$pr" --body "Could not start a verification build for \`$BRANCH\`."
+            exit 0
+          fi
+
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/$run_id"
+          gh run watch "$run_id" --exit-status > /dev/null 2>&1 && result=passed || result=failed
+          printf '%s\n\n%s\n' \
+            "Verification build **$result**: $run_url" \
+            "Triggered from the repair of ${{ github.event.workflow_run.html_url }}." \
+            | gh pr comment "$pr" --body-file -
