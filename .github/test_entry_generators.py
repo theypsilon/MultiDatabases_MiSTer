@@ -1105,5 +1105,69 @@ class MegaVgmDriveReleaseTests(unittest.TestCase):
             )
 
 
+class MisterDvdGeneratorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("mister-dvd")
+
+    def member(self, path: str):
+        return self.generator.ArchiveMember(
+            archive_path=path,
+            path=path,
+            data=b"data",
+        )
+
+    def release_members(self, *extra: str):
+        return [
+            self.member("DVD_INSTALL.txt"),
+            self.member("MiSTer_DVDcss"),
+            self.member("_Other/DVD_20260830.rbf"),
+            self.member("Scripts/install_dvdcss.sh"),
+            *(self.member(path) for path in extra),
+        ]
+
+    def test_installs_the_complete_release_layout(self) -> None:
+        selected = self.generator.selected_files(self.release_members())
+        self.assertEqual(
+            [
+                "DVD_INSTALL.txt",
+                "MiSTer_DVDcss",
+                "Scripts/install_dvdcss.sh",
+                "_Other/DVD_20260830.rbf",
+            ],
+            [destination for destination, _ in selected],
+        )
+
+    def test_rejects_an_unexpected_release_file(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "unexpected files"):
+            self.generator.selected_files(self.release_members("README.md"))
+
+    def test_requires_a_single_dated_core(self) -> None:
+        members = [
+            member
+            for member in self.release_members()
+            if not member.path.endswith(".rbf")
+        ]
+        with self.assertRaisesRegex(RuntimeError, "exactly one"):
+            self.generator.selected_files(members)
+
+    def test_requires_the_custom_main_and_installer(self) -> None:
+        members = [
+            member
+            for member in self.release_members()
+            if member.path != "MiSTer_DVDcss"
+        ]
+        with self.assertRaisesRegex(RuntimeError, "MiSTer_DVDcss"):
+            self.generator.selected_files(members)
+
+    def test_accepts_semantic_version_release_assets(self) -> None:
+        self.assertIsNotNone(
+            self.generator.ASSET_PATTERN.fullmatch("MiSTer_DVD_v0.2.0.zip")
+        )
+        self.assertIsNone(
+            self.generator.ASSET_PATTERN.fullmatch("MiSTer_DVD_source.zip")
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
