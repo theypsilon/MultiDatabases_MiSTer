@@ -60,6 +60,13 @@
   contain only generated entry folders, and it is pushed only when the bundle
   tree differs from the published one. Unchanged bundles are byte-for-byte
   identical, so a build that changed nothing leaves `db` untouched.
+- Derived payloads that have no upstream direct-file or ZIP URL are published
+  on the append-only orphan `db-assets` branch under a content-addressed path.
+  Never replace or remove a published asset. Database URLs must use the full
+  commit that introduced the asset, not the branch name. The asset is pushed
+  before Downloader integration testing so its pinned URL is reachable; the
+  live `db` branch is still pushed only after every validation and integration
+  test passes.
 - Every published `db` commit is logged on the orphan `db-releases` branch:
   `.github/track_release.py` appends `<UTC timestamp>: <db commit>` to
   `commits.txt`, and to `<entry>/commits.txt` for every entry whose bundle

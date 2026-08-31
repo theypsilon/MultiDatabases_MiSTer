@@ -608,6 +608,48 @@ class StandardTagTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "unknown tag index 99"):
             validate_database(value)
 
+    def test_builds_an_archive_database_with_a_direct_file(self) -> None:
+        operator = SimpleNamespace(
+            Tags=FakeOperatorTags,
+            initial_filter_aliases=[],
+        )
+        archive_member = db_helpers.ArchiveMember(
+            archive_path="core.rbf",
+            path="core.rbf",
+            data=b"core",
+        )
+        direct_file = db_helpers.DirectFile(
+            path="support/library.so",
+            url=(
+                "https://raw.githubusercontent.com/example/project/"
+                "0123456789abcdef0123456789abcdef01234567/support/library.so"
+            ),
+            data=b"library",
+        )
+
+        with patch.object(db_helpers, "load_db_operator", return_value=operator):
+            value = db_helpers.build_selective_archive_database(
+                folder="example",
+                repository="example/project",
+                timestamp=1,
+                archive_url=(
+                    "https://github.com/example/project/releases/"
+                    "download/v1/release.zip"
+                ),
+                archive_data=b"archive",
+                selected_files=(("core.rbf", archive_member),),
+                direct_files=(direct_file,),
+                description="Installing example",
+                filter_terms=("example",),
+            )
+
+        self.assertIn("support/library.so", value["files"])
+        self.assertIn(
+            "core.rbf",
+            value["archives"]["release"]["summary_inline"]["files"],
+        )
+        self.assertIn("support", value["folders"])
+
 
 if __name__ == "__main__":
     unittest.main()

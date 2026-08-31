@@ -609,6 +609,7 @@ def build_selective_archive_database(
     tag_aliases: Sequence[Sequence[str]] = (),
     extra_folders: Iterable[str] = (),
     compressed_db_url: bool = False,
+    direct_files: Sequence[DirectFile] = (),
 ) -> dict[str, Any]:
     return build_multi_selective_archive_database(
         folder=folder,
@@ -627,6 +628,7 @@ def build_selective_archive_database(
         tag_aliases=tag_aliases,
         extra_folders=extra_folders,
         compressed_db_url=compressed_db_url,
+        direct_files=direct_files,
     )
 
 
@@ -640,6 +642,7 @@ def build_multi_selective_archive_database(
     tag_aliases: Sequence[Sequence[str]] = (),
     extra_folders: Iterable[str] = (),
     compressed_db_url: bool = False,
+    direct_files: Sequence[DirectFile] = (),
 ) -> dict[str, Any]:
     if not archives:
         raise RuntimeError(f"No release archives supplied for {folder}")
@@ -647,6 +650,24 @@ def build_multi_selective_archive_database(
     archive_descriptions: dict[str, dict[str, Any]] = {}
     file_data: dict[str, bytes] = {}
     destination_archives: dict[str, str] = {}
+    direct_descriptions: dict[str, dict[str, Any]] = {}
+
+    for item in direct_files:
+        destination = normalize_install_path(item.path)
+        if destination in direct_descriptions:
+            raise RuntimeError(f"Duplicate direct destination path: {destination}")
+        description: dict[str, Any] = {
+            "hash": md5(item.data),
+            "size": len(item.data),
+            "url": item.url,
+            "overwrite": True,
+        }
+        if item.reboot:
+            description["reboot"] = True
+        if item.tangles:
+            description["tangle"] = list(item.tangles)
+        direct_descriptions[destination] = description
+        file_data[destination] = item.data
 
     for archive in archives:
         archive_id = archive.archive_id
@@ -663,6 +684,11 @@ def build_multi_selective_archive_database(
         summary_files: dict[str, dict[str, Any]] = {}
         for destination, member in archive.selected_files:
             destination = normalize_install_path(destination)
+            if destination in direct_descriptions:
+                raise RuntimeError(
+                    f"Duplicate destination path {destination} in direct files "
+                    f"and archive {archive_id}"
+                )
             if destination in destination_archives:
                 previous = destination_archives[destination]
                 raise RuntimeError(
@@ -718,8 +744,15 @@ def build_multi_selective_archive_database(
         "db_id": database_id(folder),
         "db_url": database_url(repository, folder, compressed=compressed_db_url),
         "timestamp": timestamp,
-        "files": {},
-        "folders": {path: {} for path in expanded_folders(extra_folders)},
+        "files": dict(sorted(direct_descriptions.items())),
+        "folders": {
+            path: {}
+            for path in sorted(
+                set(parent_folders(direct_descriptions)).union(
+                    expanded_folders(extra_folders)
+                )
+            )
+        },
         "tag_dictionary": {},
         "archives": dict(sorted(archive_descriptions.items())),
     }

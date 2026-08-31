@@ -49,6 +49,73 @@ jobs:
             fi
           done
 
+      - name: Prepare MiSTer DVD derived payload
+        id: prepare_dvd_payload
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          payload_dir="$RUNNER_TEMP/mister-dvd-payload"
+          python3 mister-dvd/generate_db.py --prepare-payload "$payload_dir"
+          echo "MISTER_DVD_PREPARED_DIR=$payload_dir" >> "$GITHUB_ENV"
+
+      - name: Publish immutable derived payload
+        if: steps.prepare_dvd_payload.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          payload_dir="$MISTER_DVD_PREPARED_DIR"
+          asset_root=$(python3 -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["asset_root"])' \
+            "$payload_dir/manifest.json")
+          marker_path=$(python3 -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["marker_path"])' \
+            "$payload_dir/manifest.json")
+          source_directory="$payload_dir/files/$asset_root"
+          assets_worktree="$RUNNER_TEMP/MultiDatabases_MiSTer-db-assets"
+          assets_ref="refs/remotes/origin/db-assets"
+
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          if git ls-remote --exit-code --heads origin refs/heads/db-assets > /dev/null; then
+            git fetch origin "+refs/heads/db-assets:$assets_ref"
+            git worktree add --detach "$assets_worktree" "$assets_ref"
+          else
+            git worktree add --detach "$assets_worktree"
+            git -C "$assets_worktree" checkout --orphan db-assets
+            git -C "$assets_worktree" rm -rf .
+          fi
+          trap 'git worktree remove --force "$assets_worktree" > /dev/null 2>&1 || true' EXIT
+
+          target_directory="$assets_worktree/$asset_root"
+          if [ -e "$target_directory" ]; then
+            if ! diff --brief --recursive "$source_directory" "$target_directory"; then
+              echo "Refusing to replace immutable payload: $asset_root" >&2
+              exit 1
+            fi
+          else
+            mkdir -p "$(dirname "$target_directory")"
+            cp -a "$source_directory" "$target_directory"
+            git -C "$assets_worktree" add "$asset_root"
+            git -C "$assets_worktree" commit -m "Publish $asset_root"
+            git -C "$assets_worktree" push origin HEAD:refs/heads/db-assets
+          fi
+
+          asset_commit=$(git -C "$assets_worktree" log \
+            --diff-filter=A --reverse --format=%H -- "$marker_path" | head -n 1)
+          if [ -z "$asset_commit" ]; then
+            echo "Unable to find the commit introducing $asset_root" >&2
+            exit 1
+          fi
+          git -C "$assets_worktree" cat-file -e "$asset_commit:$marker_path"
+          echo "MISTER_DVD_PAYLOAD_REVISION=$asset_commit" >> "$GITHUB_ENV"
+          echo "Published $asset_root at $asset_commit"
+
       - name: Generate every database
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

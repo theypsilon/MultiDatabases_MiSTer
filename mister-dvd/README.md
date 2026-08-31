@@ -10,8 +10,12 @@
 MiSTer DVD is an FPGA DVD-Video player with support for decrypted DVD ISOs,
 VCDs and SVCDs. Its optional custom MiSTer Main adds physical DVD playback and
 CSS-encrypted ISO playback. The generator follows the latest stable GitHub
-release and installs the dated DVD core, custom Main, libdvdcss installer and
-upstream install note.
+release and installs the dated DVD core, custom Main and libdvdcss library. It
+runs upstream's installer in an isolated Docker filesystem and publishes the
+files it leaves on the simulated `/media/fat` immutably with source metadata.
+It excludes only the copied `install_dvdcss.sh` installer; any other file the
+installer creates, including another script, is retained. The upstream install
+note is omitted because its manual installation step no longer applies.
 
 ## Installation
 
@@ -28,7 +32,7 @@ To enable physical DVDs and CSS-encrypted ISOs, add this section to
 main=MiSTer_DVDcss
 ```
 
-Most commercial DVDs and raw encrypted ISOs also require libdvdcss. It is not
-included in this database. Run `install_dvdcss` once from the MiSTer Scripts
-menu to download it. No BIOS file is required, and the database includes no
-disc images or other media.
+Most commercial DVDs and raw encrypted ISOs also require libdvdcss. This
+database installs it directly at `/media/fat/dvdcss/libdvdcss.so.2`; no Scripts
+menu installation step is required. No BIOS file is required, and the database
+includes no disc images or other media.

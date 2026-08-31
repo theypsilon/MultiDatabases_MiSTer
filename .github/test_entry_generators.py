@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import tempfile
 import unittest
 import zipfile
 from pathlib import Path
@@ -1126,16 +1127,208 @@ class MisterDvdGeneratorTests(unittest.TestCase):
             *(self.member(path) for path in extra),
         ]
 
+    def installer(self) -> bytes:
+        return b"#!/bin/bash\n"
+
+    def release_zip(self, installer):
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("DVD_INSTALL.txt", b"instructions")
+            archive.writestr("MiSTer_DVDcss", b"main")
+            archive.writestr("_Other/DVD_20260830.rbf", b"core")
+            archive.writestr("Scripts/install_dvdcss.sh", installer)
+        return output.getvalue()
+
     def test_installs_the_complete_release_layout(self) -> None:
         selected = self.generator.selected_files(self.release_members())
         self.assertEqual(
             [
-                "DVD_INSTALL.txt",
                 "MiSTer_DVDcss",
-                "Scripts/install_dvdcss.sh",
                 "_Other/DVD_20260830.rbf",
             ],
             [destination for destination, _ in selected],
+        )
+
+    def test_install_note_is_optional(self) -> None:
+        members = [
+            member
+            for member in self.release_members()
+            if member.path != "DVD_INSTALL.txt"
+        ]
+
+        selected = self.generator.selected_files(members)
+
+        self.assertEqual(
+            ["MiSTer_DVDcss", "_Other/DVD_20260830.rbf"],
+            [destination for destination, _ in selected],
+        )
+
+    def test_capture_excludes_only_the_seeded_installer(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            media_fat = Path(temporary_directory)
+            installer = media_fat / self.generator.INSTALLER_PATH
+            installer.parent.mkdir(parents=True)
+            installer.write_bytes(self.installer())
+            (media_fat / "dvdcss").mkdir()
+            (media_fat / "dvdcss/libdvdcss.so.2").write_bytes(b"library")
+
+            captured = self.generator.capture_installed_files(media_fat)
+
+        self.assertEqual(
+            ["dvdcss/libdvdcss.so.2"],
+            [item.install_path for item in captured],
+        )
+
+    def test_capture_retains_other_files_in_scripts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            media_fat = Path(temporary_directory)
+            installer = media_fat / self.generator.INSTALLER_PATH
+            installer.parent.mkdir(parents=True)
+            installer.write_bytes(self.installer())
+            (installer.parent / "dvd_helper.sh").write_bytes(b"helper")
+            (media_fat / "config").mkdir()
+            (media_fat / "config/dvd.ini").write_bytes(b"config")
+
+            captured = self.generator.capture_installed_files(media_fat)
+
+        self.assertEqual(
+            ["Scripts/dvd_helper.sh", "config/dvd.ini"],
+            [item.install_path for item in captured],
+        )
+
+    def test_capture_rejects_a_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            media_fat = Path(temporary_directory)
+            installer = media_fat / self.generator.INSTALLER_PATH
+            installer.parent.mkdir(parents=True)
+            installer.write_bytes(self.installer())
+            (media_fat / "dvdcss").symlink_to("/tmp")
+
+            with self.assertRaisesRegex(RuntimeError, "unsupported directory"):
+                self.generator.capture_installed_files(media_fat)
+
+    def test_runs_installer_in_a_locked_down_docker_sandbox(self) -> None:
+        command_seen = []
+
+        def simulate_docker(command, **kwargs):
+            command_seen.extend(command)
+            mounts = [
+                command[index + 1]
+                for index, argument in enumerate(command)
+                if argument == "--mount"
+            ]
+            media_mount = next(
+                mount for mount in mounts if mount.endswith(",dst=/media/fat")
+            )
+            audit_mount = next(
+                mount for mount in mounts if mount.endswith(",dst=/sandbox/audit")
+            )
+            media_fat = Path(
+                media_mount.removeprefix("type=bind,src=").split(",dst=", 1)[0]
+            )
+            audit = Path(
+                audit_mount.removeprefix("type=bind,src=").split(",dst=", 1)[0]
+            )
+            (media_fat / "dvdcss").mkdir()
+            (media_fat / "dvdcss/libdvdcss.so.2").write_bytes(b"library")
+            scripts = media_fat / "Scripts"
+            (scripts / "generated.sh").write_bytes(b"script")
+            (audit / "fetches.jsonl").write_text(
+                json.dumps(
+                    {
+                        "requested_url": "http://example.com/library.deb",
+                        "resolved_url": "https://example.com/library.deb",
+                        "sha256": "a" * 64,
+                        "size": 123,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+        with patch.object(
+            self.generator.subprocess, "run", side_effect=simulate_docker
+        ):
+            captured, downloads = self.generator.run_installer(self.installer())
+
+        self.assertEqual(
+            ["Scripts/generated.sh", "dvdcss/libdvdcss.so.2"],
+            [item.install_path for item in captured],
+        )
+        self.assertEqual("http://example.com/library.deb", downloads[0]["requested_url"])
+        self.assertIn("--read-only", command_seen)
+        self.assertIn("--cap-drop=ALL", command_seen)
+        self.assertIn("linux/amd64", command_seen)
+        self.assertIn(self.generator.SANDBOX_IMAGE, command_seen)
+        self.assertNotIn("GITHUB_TOKEN", " ".join(command_seen))
+
+    def test_prepared_payload_round_trip_keeps_only_installable_release_files(
+        self,
+    ) -> None:
+        installer = self.installer()
+        archive_data = self.release_zip(installer)
+        captured = (
+            self.generator.CapturedFile(
+                install_path="Scripts/generated.sh", data=b"script"
+            ),
+            self.generator.CapturedFile(
+                install_path="dvdcss/libdvdcss.so.2", data=b"library"
+            ),
+        )
+        installer_url = (
+            "https://github.com/owenb321/MiSTer_DVD/releases/"
+            "download/v0.2.0/install_dvdcss.sh"
+        )
+        source_data = self.generator.source_metadata(
+            installer_url,
+            installer,
+            (
+                {
+                    "requested_url": "http://example.com/library.deb",
+                    "resolved_url": "https://example.com/library.deb",
+                    "sha256": "a" * 64,
+                    "size": 123,
+                },
+            ),
+        )
+        asset_root = (
+            f"mister-dvd/runtime/"
+            f"{self.generator.runtime_digest(captured, source_data)}"
+        )
+        payload = self.generator.PreparedPayload(
+            archive_url=(
+                "https://github.com/owenb321/MiSTer_DVD/releases/"
+                "download/v0.2.0/MiSTer_DVD_v0.2.0.zip"
+            ),
+            archive_data=archive_data,
+            selected_files=(),
+            installer_url=installer_url,
+            installer_data=installer,
+            asset_root=asset_root,
+            files=tuple(
+                self.generator.PreparedFile(
+                    install_path=item.install_path,
+                    asset_path=f"{asset_root}/{item.install_path}",
+                    data=item.data,
+                )
+                for item in captured
+            ),
+            source_data=source_data,
+            version="v0.2.0",
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "prepared"
+            self.generator.write_prepared_payload(payload, output)
+            restored = self.generator.read_prepared_payload(output)
+
+        self.assertEqual(
+            ["Scripts/generated.sh", "dvdcss/libdvdcss.so.2"],
+            [item.install_path for item in restored.files],
+        )
+        self.assertEqual(
+            ["MiSTer_DVDcss", "_Other/DVD_20260830.rbf"],
+            [destination for destination, _ in restored.selected_files],
         )
 
     def test_rejects_an_unexpected_release_file(self) -> None:
@@ -1152,13 +1345,15 @@ class MisterDvdGeneratorTests(unittest.TestCase):
             self.generator.selected_files(members)
 
     def test_requires_the_custom_main_and_installer(self) -> None:
-        members = [
-            member
-            for member in self.release_members()
-            if member.path != "MiSTer_DVDcss"
-        ]
-        with self.assertRaisesRegex(RuntimeError, "MiSTer_DVDcss"):
-            self.generator.selected_files(members)
+        for required in ("MiSTer_DVDcss", "Scripts/install_dvdcss.sh"):
+            with self.subTest(required=required):
+                members = [
+                    member
+                    for member in self.release_members()
+                    if member.path != required
+                ]
+                with self.assertRaisesRegex(RuntimeError, required):
+                    self.generator.selected_files(members)
 
     def test_accepts_semantic_version_release_assets(self) -> None:
         self.assertIsNotNone(
