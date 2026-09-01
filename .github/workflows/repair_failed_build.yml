@@ -71,6 +71,15 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           base_branch: main
           branch_prefix: repair/
+          bot_id: "41898282"
+          bot_name: github-actions[bot]
+          settings: |
+            {
+              "attribution": {
+                "commit": "",
+                "pr": ""
+              }
+            }
           claude_args: |
             --model claude-opus-5
             --effort xhigh
@@ -86,6 +95,10 @@ jobs:
             Its `.build/failures.txt` names the entries that could not be
             updated. `gh run view --log` gives the whole run if you need more
             than the failing step.
+
+            Use the preconfigured github-actions[bot] identity for every git
+            commit. Never add a Co-Authored-By trailer or any Claude/Anthropic
+            authorship or attribution to commits or pull requests.
 
             Read GUIDELINES.md before anything else. It is the authoritative
             source of truth for how this repository generates and publishes
@@ -339,6 +352,15 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           base_branch: main
+          bot_id: "41898282"
+          bot_name: github-actions[bot]
+          settings: |
+            {
+              "attribution": {
+                "commit": "",
+                "pr": ""
+              }
+            }
           claude_args: |
             --model claude-opus-5
             --effort xhigh
@@ -350,6 +372,10 @@ jobs:
             ---
             ${{ github.event.comment.body }}
             ---
+
+            Use the preconfigured github-actions[bot] identity for every git
+            commit. Never add a Co-Authored-By trailer or any Claude/Anthropic
+            authorship or attribution to commits or pull requests.
 
             Read GUIDELINES.md before doing anything else. Then use `gh` to
             read the pull request body, its current diff, and its discussion;
