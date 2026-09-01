@@ -43,6 +43,12 @@ PAYLOAD_BRANCH = "db-assets"
 ASSET_PATTERN = re.compile(r"MiSTer_DVD_(v\d+\.\d+\.\d+)\.zip", re.IGNORECASE)
 INSTALLER_PATTERN = re.compile(r"install_dvdcss\.sh", re.IGNORECASE)
 CORE_PATTERN = re.compile(r"DVD_\d{8}\.rbf", re.IGNORECASE)
+# Every member of the release ZIP is enumerated here, so a file upstream adds
+# stops the generator until a human gives it a disposition. Upstream v0.3.0
+# (2026-09-01) added Scripts/set_dvd_region.sh and this entry is parked on
+# v0.2.0 until that decision is recorded: install it (EXPECTED_FILES and
+# INSTALLABLE_FILES, which also makes it required) or withhold it
+# (IGNORED_FILES). Nothing else about v0.3.0 needs a change.
 EXPECTED_FILES = {
     "MiSTer_DVDcss",
     "Scripts/install_dvdcss.sh",
