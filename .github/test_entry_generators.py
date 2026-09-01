@@ -1149,6 +1149,28 @@ class MisterDvdGeneratorTests(unittest.TestCase):
             [destination for destination, _ in selected],
         )
 
+    def test_withholds_the_region_setting_script(self) -> None:
+        selected = self.generator.selected_files(
+            self.release_members("Scripts/set_dvd_region.sh")
+        )
+
+        self.assertEqual(
+            ["MiSTer_DVDcss", "_Other/DVD_20260830.rbf"],
+            [destination for destination, _ in selected],
+        )
+
+    def test_withholding_the_region_script_still_stops_another_new_script(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(
+            RuntimeError, r"unexpected files: Scripts/set_dvd_zone\.sh$"
+        ):
+            self.generator.selected_files(
+                self.release_members(
+                    "Scripts/set_dvd_region.sh", "Scripts/set_dvd_zone.sh"
+                )
+            )
+
     def test_install_note_is_optional(self) -> None:
         members = [
             member

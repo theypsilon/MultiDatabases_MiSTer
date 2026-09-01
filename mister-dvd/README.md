@@ -16,6 +16,10 @@ files it leaves on the simulated `/media/fat` immutably with source metadata.
 It excludes only the copied `install_dvdcss.sh` installer; any other file the
 installer creates, including another script, is retained. The upstream install
 note is omitted because its manual installation step no longer applies.
+Upstream's `Scripts/set_dvd_region.sh` is deliberately withheld: it sets a USB
+DVD drive's region, a change drives allow only about five times and never
+undo, and playback does not need it. Take it from the upstream release if you
+want it.
 
 ## Installation
 

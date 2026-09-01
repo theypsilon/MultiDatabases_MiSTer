@@ -43,12 +43,19 @@ PAYLOAD_BRANCH = "db-assets"
 ASSET_PATTERN = re.compile(r"MiSTer_DVD_(v\d+\.\d+\.\d+)\.zip", re.IGNORECASE)
 INSTALLER_PATTERN = re.compile(r"install_dvdcss\.sh", re.IGNORECASE)
 CORE_PATTERN = re.compile(r"DVD_\d{8}\.rbf", re.IGNORECASE)
+# Every member of the release ZIP is enumerated here, so a file upstream adds
+# stops the generator until a human gives it a disposition.
 EXPECTED_FILES = {
     "MiSTer_DVDcss",
     "Scripts/install_dvdcss.sh",
 }
 INSTALLABLE_FILES = {"MiSTer_DVDcss"}
-IGNORED_FILES = {"DVD_INSTALL.txt"}
+# Scripts/set_dvd_region.sh, added by upstream v0.3.0, is withheld by review
+# (pull request #3, 2026-09-01): it sets a USB DVD drive's RPC region through
+# the DVD_AUTH ioctl, a change drives allow only about five times and never
+# back to none, and playback does not need it. Withholding it also keeps the
+# entry free of any Scripts menu step, as its README promises.
+IGNORED_FILES = {"DVD_INSTALL.txt", "Scripts/set_dvd_region.sh"}
 INSTALLER_PATH = "Scripts/install_dvdcss.sh"
 PREPARED_DIRECTORY_ENV = "MISTER_DVD_PREPARED_DIR"
 PAYLOAD_REVISION_ENV = "MISTER_DVD_PAYLOAD_REVISION"
