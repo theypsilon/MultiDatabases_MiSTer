@@ -10,6 +10,7 @@ permissions:
   pull-requests: write
   issues: write
   actions: write
+  id-token: write
 
 concurrency:
   group: multi-databases-repair
