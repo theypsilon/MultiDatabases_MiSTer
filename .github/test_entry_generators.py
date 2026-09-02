@@ -9,6 +9,7 @@ import json
 import tempfile
 import unittest
 import zipfile
+import zlib
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
@@ -1104,6 +1105,139 @@ class MegaVgmDriveReleaseTests(unittest.TestCase):
                     "audio-gold", "MegaVGMdrive_MiSTer.rbf", date=self.OLDER_DATE
                 ),
             )
+
+
+class Sm64H2xGeneratorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("sm64-h2x")
+
+    TAG = "v1.0-rc1"
+    DATE = "2026-09-01T22:16:53Z"
+    ASSET_NAME = "SM64-H2X-Hi-res-Hack-dataDave-v1.0-RC1.zip"
+    RELEASE_FOLDER = "SM64 - H2X Hi-res (Hack) dataDave v1.0 RC1"
+
+    @staticmethod
+    def bps_number(value: int) -> bytes:
+        encoded = bytearray()
+        while True:
+            byte = value & 0x7F
+            value >>= 7
+            if value == 0:
+                encoded.append(byte | 0x80)
+                return bytes(encoded)
+            encoded.append(byte)
+            value -= 1
+
+    def bps_patch(self, source_crc: int | None = None) -> bytes:
+        size = self.generator.EXPECTED_SOURCE_SIZE
+        data = bytearray(b"BPS1")
+        data += self.bps_number(size)
+        data += self.bps_number(size)
+        data += self.bps_number(0)
+        data += self.bps_number(((size - 1) << 2) | 0)
+        crc = self.generator.CLEAN_ROM_CRC32 if source_crc is None else source_crc
+        data += crc.to_bytes(4, "little")
+        data += crc.to_bytes(4, "little")
+        data += zlib.crc32(data).to_bytes(4, "little")
+        return bytes(data)
+
+    def asset(self, name: str | None = None, tag: str | None = None):
+        name = self.ASSET_NAME if name is None else name
+        tag = self.TAG if tag is None else tag
+        return {
+            "name": name,
+            "browser_download_url": (
+                f"https://github.com/DavidFallows/sm64/releases/download/{tag}/{name}"
+            ),
+        }
+
+    def release(self, *, tag=None, date=None, asset=None, **flags):
+        return {
+            "tag_name": self.TAG if tag is None else tag,
+            "published_at": self.DATE if date is None else date,
+            "draft": flags.get("draft", False),
+            "prerelease": flags.get("prerelease", True),
+            "assets": [self.asset() if asset is None else asset],
+        }
+
+    def members(self, *extra: str):
+        files = {
+            "CHANGELOG.txt": b"changes",
+            "README.txt": b"instructions",
+            f"{self.RELEASE_FOLDER}.bps": self.bps_patch(),
+        }
+        files.update({path: b"unexpected" for path in extra})
+        return [
+            self.generator.ArchiveMember(
+                archive_path=f"{self.RELEASE_FOLDER}/{name}",
+                path=f"{self.RELEASE_FOLDER}/{name}",
+                data=data,
+            )
+            for name, data in files.items()
+        ]
+
+    def test_follows_the_newest_release_candidate(self) -> None:
+        older = self.release(
+            tag="v0.9",
+            date="2026-08-31T12:00:00Z",
+            asset=self.asset(
+                "SM64-H2X-Hi-res-Hack-dataDave-v0.9.zip", "v0.9"
+            ),
+            prerelease=False,
+        )
+        selected, asset = self.generator.select_release_asset(
+            [older, self.release()]
+        )
+        self.assertEqual(self.TAG, selected["tag_name"])
+        self.assertEqual(self.ASSET_NAME, asset["name"])
+
+    def test_skips_drafts(self) -> None:
+        draft = self.release(
+            tag="v2.0",
+            date="2026-09-02T12:00:00Z",
+            asset=self.asset(
+                "SM64-H2X-Hi-res-Hack-dataDave-v2.0.zip", "v2.0"
+            ),
+            draft=True,
+        )
+        selected, _ = self.generator.select_release_asset(
+            [draft, self.release()]
+        )
+        self.assertEqual(self.TAG, selected["tag_name"])
+
+    def test_rejects_an_incompatible_newest_release(self) -> None:
+        newer = self.release(
+            tag="v1.1",
+            date="2026-09-02T12:00:00Z",
+            asset=self.asset("source-code.zip", "v1.1"),
+            prerelease=False,
+        )
+        with self.assertRaisesRegex(RuntimeError, "source-code.zip"):
+            self.generator.select_release_asset([newer, self.release()])
+
+    def test_release_tag_must_match_the_asset_version(self) -> None:
+        release = self.release(tag="v1.0-rc2")
+        with self.assertRaisesRegex(RuntimeError, "version differ"):
+            self.generator.release_asset(release)
+
+    def test_maps_the_complete_release_to_stable_n64_paths(self) -> None:
+        selected = self.generator.selected_files(self.members(), self.TAG)
+        self.assertEqual(
+            [
+                "games/N64/SM64 H2X/README.txt",
+                "games/N64/SM64 H2X/SM64 H2X.bps",
+            ],
+            [destination for destination, _ in selected],
+        )
+
+    def test_rejects_an_unexpected_release_file(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "exactly three"):
+            self.generator.selected_files(self.members("SOURCE.txt"), self.TAG)
+
+    def test_rejects_a_patch_for_another_source_rom(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "clean USA"):
+            self.generator.validate_bps_patch(self.bps_patch(source_crc=0))
 
 
 class MisterDvdGeneratorTests(unittest.TestCase):
