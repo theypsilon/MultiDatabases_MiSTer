@@ -105,6 +105,49 @@ class Mms2GbReleaseTests(unittest.TestCase):
             )
 
 
+class BrickBoyDmgReleaseTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("brickboy-dmg")
+
+    @staticmethod
+    def asset(name: str, url: str | None = None) -> dict[str, str]:
+        return {
+            "name": name,
+            "browser_download_url": url or f"https://example.com/{name}",
+        }
+
+    def test_selects_the_exact_rbf_asset(self) -> None:
+        expected = self.asset("BrickBoy_DMG.rbf")
+        release = {
+            "tag_name": "v0.2.0",
+            "assets": [self.asset("source.zip"), expected],
+        }
+
+        self.assertIs(expected, self.generator.select_rbf_asset(release))
+
+    def test_rejects_a_release_without_the_exact_rbf(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "exactly one BrickBoy_DMG"):
+            self.generator.select_rbf_asset(
+                {
+                    "tag_name": "v0.3.0",
+                    "assets": [self.asset("BrickBoy_DMG_20260903.rbf")],
+                }
+            )
+
+    def test_rejects_an_ambiguous_release(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "found 2"):
+            self.generator.select_rbf_asset(
+                {
+                    "tag_name": "v0.3.0",
+                    "assets": [
+                        self.asset("BrickBoy_DMG.rbf", "https://one.example/core"),
+                        self.asset("brickboy_dmg.rbf", "https://two.example/core"),
+                    ],
+                }
+            )
+
+
 class MisterFinGeneratorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
