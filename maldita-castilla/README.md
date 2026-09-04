@@ -10,11 +10,8 @@
 Maldita Castilla MiSTer is a hybrid FPGA/ARM port of Locomalito's GameMaker
 game. The ARM-side `gmloader` engine runs the original game while a custom FPGA
 core accelerates rasterisation. The database follows the latest stable,
-versioned upstream release and installs its dated core, launchers, ARM engine,
+versioned upstream release and installs its dated core, ARM engine and wrapper,
 runtime libraries, optional write-combining kernel module, and included game.
-It omits only the ZIP's generic top-level `README.md`, which is not needed at
-runtime and would otherwise overwrite the same SD-card-root path used by other
-packages.
 
 The original `game.droid` data is byte-identical to Locomalito's original
 `data.win`. Locomalito publishes the original game—not the commercial EX
@@ -29,24 +26,23 @@ the [license terms](https://creativecommons.org/licenses/by-nc-nd/4.0/legalcode.
 Download
 [`downloader_MultiDatabases_maldita-castilla.zip`](https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/maldita-castilla/downloader_MultiDatabases_maldita-castilla.zip),
 extract it to `/media/fat` on the MiSTer SD card, and run the MiSTer updaters.
-Start the game from **Scripts → MalditaCastilla**; loading its RBF directly
-does not start the ARM engine by default. If the Downloader requests a reboot
-after installing or updating the `mem_wc` kernel module, reboot before the next
-launch so an already-loaded copy cannot remain resident.
 
-No `MiSTer.ini` change, BIOS file, or separately supplied game file is
-required. The optional **Scripts → MalditaCastilla_CoresMenu** entry backs up
-`MiSTer.ini` and toggles this section so the Cores browser can start the engine
-too:
+Add this required section to `/media/fat/MiSTer.ini`:
 
 ```ini
 [Maldita Castilla]
-main=/media/fat/games/gmloader/MiSTer_Maldita
+main=games/gmloader/MiSTer_Maldita
 ```
 
-That setting replaces the running MiSTer binary for this core; do not point
-`main=` at a shell script. The normal Scripts launcher avoids the replacement
-entirely and remains available whether the optional setting is armed or not.
+The RBF launch entry point is installed as
+`/media/fat/_Other/MalditaCastilla_YYYYMMDD.rbf`. Select the newest Maldita
+Castilla RBF from MiSTer's **_Other** menu. It loads the FPGA core and uses the
+`main=` wrapper to start the ARM engine. Do not point `main=` at
+`games/Maldita Castilla/launch.sh` or another shell script.
+
+If the Downloader requests a reboot after installing or updating the `mem_wc`
+kernel module, reboot before the next launch so an already-loaded copy cannot
+remain resident. No BIOS file or separately supplied game file is required.
 
 No daemon is required. When upgrading an older manual installation, delete a
 leftover `/media/fat/games/Maldita Castilla/_handler.sh` before launching: the

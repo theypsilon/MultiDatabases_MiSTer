@@ -718,13 +718,13 @@ class MalditaCastillaGeneratorTests(unittest.TestCase):
         contents = {
             "README.md": b"release instructions",
             "_Other/MalditaCastilla_20260808.rbf": bytes(1_000_000),
-            generator.LAUNCHER: (
+            "Scripts/MalditaCastilla.sh": (
                 b"#!/bin/bash\n"
                 b'CORENAME="Maldita Castilla"\n'
                 b'HANDLER="/media/fat/games/$CORENAME/launch.sh"\n'
                 b'RBF_GLOB="/media/fat/_Other/MalditaCastilla_*.rbf"\n'
             ),
-            generator.CORES_MENU_SETUP: (
+            "Scripts/MalditaCastilla_CoresMenu.sh": (
                 b"#!/bin/bash\n"
                 b'WRAPPER_DEFAULT="/media/fat/games/gmloader/MiSTer_Maldita"\n'
                 b'INI_DEFAULT="/media/fat/MiSTer.ini"\n'
@@ -796,15 +796,28 @@ class MalditaCastillaGeneratorTests(unittest.TestCase):
             for member in members
         ]
 
-    def test_installs_the_runtime_but_not_the_generic_root_readme(self) -> None:
+    def test_installs_the_runtime_without_menu_scripts(self) -> None:
         members = self.release_members()
         selected = self.select(list(reversed(members)))
 
+        omitted = {"README.md", *self.generator.OMITTED_MENU_SCRIPTS}
         expected = sorted(
-            member.path for member in members if member.path != "README.md"
+            member.path for member in members if member.path not in omitted
         )
         self.assertEqual(expected, [path for path, _ in selected])
-        self.assertEqual(23, len(selected))
+        self.assertEqual(21, len(selected))
+        self.assertFalse(any(path.startswith("Scripts/") for path, _ in selected))
+
+    def test_does_not_require_the_upstream_menu_scripts(self) -> None:
+        members = [
+            member
+            for member in self.release_members()
+            if member.path not in self.generator.OMITTED_MENU_SCRIPTS
+        ]
+
+        selected = dict(self.select(members))
+        self.assertIn(self.generator.ENGINE_LAUNCHER, selected)
+        self.assertIn(self.generator.WRAPPER, selected)
 
     def test_rejects_files_outside_the_mister_install_roots(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "outside its MiSTer folders"):
@@ -812,13 +825,15 @@ class MalditaCastillaGeneratorTests(unittest.TestCase):
                 self.release_members(self.member("build/debug-symbols.tar.gz"))
             )
 
-    def test_rejects_unnamespaced_scripts_that_could_collide(self) -> None:
-        with self.assertRaisesRegex(RuntimeError, "unnamespaced Scripts entry"):
-            self.select(
-                self.release_members(
-                    self.member("Scripts/update_all.sh", b"#!/bin/bash\n")
-                )
-            )
+    def test_rejects_new_scripts_menu_entries(self) -> None:
+        for path in ("Scripts/update_all.sh", "Scripts/MalditaCastilla_Debug.sh"):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(
+                    RuntimeError, "outside its MiSTer folders"
+                ):
+                    self.select(
+                        self.release_members(self.member(path, b"#!/bin/bash\n"))
+                    )
 
     def test_rejects_user_owned_and_daemon_controlled_files(self) -> None:
         unsafe = (

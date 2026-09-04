@@ -55,10 +55,17 @@ MAX_ARCHIVE_FILES = 256
 MAX_UNCOMPRESSED_SIZE = 256_000_000
 MAX_MEMBER_SIZE = 128_000_000
 
-IGNORED = frozenset({"readme.md"})
+# These are convenience menu/configuration tools. The supported launch route is
+# the dated RBF plus MiSTer.ini's main= wrapper, so neither belongs in the DB.
+OMITTED_MENU_SCRIPTS = (
+    "Scripts/MalditaCastilla.sh",
+    "Scripts/MalditaCastilla_CoresMenu.sh",
+)
+IGNORED = frozenset(
+    path.casefold() for path in ("README.md", *OMITTED_MENU_SCRIPTS)
+)
 INSTALL_ROOTS = (
     "_Other/",
-    "Scripts/",
     "games/Maldita Castilla/",
     "games/gmloader/",
 )
@@ -81,8 +88,6 @@ USER_OWNED = frozenset(
     }
 )
 
-LAUNCHER = "Scripts/MalditaCastilla.sh"
-CORES_MENU_SETUP = "Scripts/MalditaCastilla_CoresMenu.sh"
 ENGINE_LAUNCHER = "games/Maldita Castilla/launch.sh"
 MEMORY_MODULE_LOADER = "games/Maldita Castilla/mem_wc_load.sh"
 ENGINE = "games/gmloader/gmloader"
@@ -95,8 +100,6 @@ CREDITS = "games/gmloader/maldita-castilla-readme.txt"
 
 REQUIRED = frozenset(
     {
-        LAUNCHER,
-        CORES_MENU_SETUP,
         ENGINE_LAUNCHER,
         MEMORY_MODULE_LOADER,
         ENGINE,
@@ -381,18 +384,6 @@ def selected_files(
             + ", ".join(unexpected)
         )
 
-    unexpected_scripts = sorted(
-        path
-        for path in installable
-        if path.startswith("Scripts/")
-        and not re.fullmatch(r"Scripts/MalditaCastilla[A-Za-z0-9_-]*\.sh", path)
-    )
-    if unexpected_scripts:
-        raise RuntimeError(
-            "Maldita Castilla ZIP contains an unnamespaced Scripts entry: "
-            + ", ".join(unexpected_scripts)
-        )
-
     unsafe = sorted(
         path
         for path in installable
@@ -468,20 +459,6 @@ def selected_files(
             f"{core.path} has an implausible RBF size: {len(core.data)}"
         )
 
-    _validate_script(
-        installable[LAUNCHER],
-        markers=(
-            "/media/fat/games/Maldita Castilla/launch.sh",
-            "/media/fat/_Other/MalditaCastilla_*.rbf",
-        ),
-    )
-    _validate_script(
-        installable[CORES_MENU_SETUP],
-        markers=(
-            "/media/fat/games/gmloader/MiSTer_Maldita",
-            "/media/fat/MiSTer.ini",
-        ),
-    )
     _validate_script(
         installable[ENGINE_LAUNCHER],
         markers=("/media/fat/games/gmloader", "./gmloader -c gmloader.json"),
