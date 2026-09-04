@@ -26,14 +26,27 @@ main=Mister_NBlood
 main=Mister_NBlood
 ```
 
-Copy your own **Blood: Fresh Supply** data to `/media/fat/games/NBlood/`.
-Copy everything at the top level of the game installation plus its `movie/`
-folder, including `BLOOD.RFF`, `blood.ini`, `sounds.rff`, `tiles*.art`, and
-`blood0*.ogg`.
+Copy these required files from your own **Blood: Fresh Supply** installation
+to `/media/fat/games/NBlood/`:
 
-For Cryptic Passage, copy the contents of `addons/Cryptic Passage/` into that
-same folder without retaining the addon subfolder. Copy its patched
-`tiles007.ART` and `tiles015.ART` last so they replace the base versions.
+- `BLOOD.INI`
+- `BLOOD.RFF`
+- `GUI.RFF`
+- `SOUNDS.RFF`
+- `SURFACE.DAT`
+- `VOXEL.DAT`
+- `TILES000.ART` through `TILES017.ART`
+
+The following game data is optional:
+
+- Copy the `movie/` folder alongside the required files to include cutscenes.
+- Copy `BLOOD000.DEM` through `BLOOD003.DEM` to include the original demos.
+- For Cryptic Passage, copy the contents of `addons/Cryptic Passage/` alongside
+  the required files without retaining the addon subfolder. Copy its patched
+  `tiles007.ART` and `tiles015.ART` last so they replace the base versions.
+
+CD-audio files such as `bloodXX.ogg` or `bloodXX.flac` are not required by this
+MiSTer port. Music uses its hardware OPL3 emulation.
 
 The database does not include the game data, and no BIOS file is required.
 The RBF launch entry point is installed at `/media/fat/_Other/NBlood.rbf`.
