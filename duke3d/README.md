@@ -31,3 +31,6 @@ vga_scaler=0
 
 Copy your own `DUKE3D.GRP` game data file to
 `/media/fat/games/DUKE3D/duke3d.grp`. The database does not include it.
+
+The RBF launch entry point is installed at `/media/fat/_Other/DUKE3D.rbf`.
+After completing the setup, launch **Duke3D** from MiSTer's `_Other` menu.

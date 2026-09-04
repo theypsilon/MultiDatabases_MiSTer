@@ -35,3 +35,6 @@ Copy your own Quake data files to `/media/fat/games/quake/id1/`:
 - `PAK1.PAK` is optional.
 
 The database does not include either file.
+
+The RBF launch entry point is installed at `/media/fat/_Other/Quake.rbf`.
+After completing the setup, launch **Quake** from MiSTer's `_Other` menu.
