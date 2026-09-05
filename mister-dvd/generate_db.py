@@ -41,10 +41,24 @@ FOLDER = "mister-dvd"
 UPSTREAM = "owenb321/MiSTer_DVD"
 PAYLOAD_BRANCH = "db-assets"
 ASSET_PATTERN = re.compile(r"MiSTer_DVD_(v\d+\.\d+\.\d+)\.zip", re.IGNORECASE)
+# OPEN QUESTION (upstream v0.4.0, 2026-09-05): upstream stopped attaching
+# install_dvdcss.sh as a standalone release asset, so unique_release_asset()
+# finds none and the database stays on v0.3.0 — the gate working as designed.
+# The ZIP still carries Scripts/install_dvdcss.sh, byte-identical to v0.3.0's,
+# so the installer itself is unchanged and still reachable. Whether to keep
+# requiring the loose asset or to take the installer from the ZIP member is a
+# human decision, because sourcing it from the ZIP retires the standalone-copy
+# cross-check below and changes the installer URL recorded in source.json.
 INSTALLER_PATTERN = re.compile(r"install_dvdcss\.sh", re.IGNORECASE)
 CORE_PATTERN = re.compile(r"DVD_\d{8}\.rbf", re.IGNORECASE)
 # Every member of the release ZIP is enumerated here, so a file upstream adds
 # stops the generator until a human gives it a disposition.
+# OPEN QUESTION (upstream v0.4.0, 2026-09-05): Scripts/dvd_report.py is new and
+# has no disposition, so selected_files() fails. The installed MiSTer_DVDcss
+# binary loads it from the fixed path /media/fat/Scripts/dvd_report.py and
+# reports "Support bundle needs dvd_report.py" without it, so withholding it
+# ships a Main with a feature that cannot work. Installing it also makes it
+# required. Either way a human records the value; the build stays red until then.
 EXPECTED_FILES = {
     "MiSTer_DVDcss",
     "Scripts/install_dvdcss.sh",
