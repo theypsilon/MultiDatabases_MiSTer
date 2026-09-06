@@ -13,6 +13,8 @@ CSS-encrypted ISO playback. The generator follows the latest stable GitHub
 release and installs the dated DVD core, custom Main and libdvdcss library. It
 runs upstream's installer in an isolated Docker filesystem and publishes the
 files it leaves on the simulated `/media/fat` immutably with source metadata.
+It also installs `Scripts/dvd_report.py`, which the custom Main uses to create
+support bundles when Audio + Subtitle are held for two seconds during playback.
 It excludes only the copied `install_dvdcss.sh` installer; any other file the
 installer creates, including another script, is retained. The upstream install
 note is omitted because its manual installation step no longer applies.

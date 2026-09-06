@@ -41,15 +41,15 @@ FOLDER = "mister-dvd"
 UPSTREAM = "owenb321/MiSTer_DVD"
 PAYLOAD_BRANCH = "db-assets"
 ASSET_PATTERN = re.compile(r"MiSTer_DVD_(v\d+\.\d+\.\d+)\.zip", re.IGNORECASE)
-INSTALLER_PATTERN = re.compile(r"install_dvdcss\.sh", re.IGNORECASE)
 CORE_PATTERN = re.compile(r"DVD_\d{8}\.rbf", re.IGNORECASE)
 # Every member of the release ZIP is enumerated here, so a file upstream adds
 # stops the generator until a human gives it a disposition.
 EXPECTED_FILES = {
     "MiSTer_DVDcss",
+    "Scripts/dvd_report.py",
     "Scripts/install_dvdcss.sh",
 }
-INSTALLABLE_FILES = {"MiSTer_DVDcss"}
+INSTALLABLE_FILES = {"MiSTer_DVDcss", "Scripts/dvd_report.py"}
 # Scripts/set_dvd_region.sh, added by upstream v0.3.0, is withheld by review
 # (pull request #3, 2026-09-01): it sets a USB DVD drive's RPC region through
 # the DVD_AUTH ioctl, a change drives allow only about five times and never
@@ -427,23 +427,18 @@ def runtime_digest(files: Sequence[CapturedFile], source_data: bytes) -> str:
 def prepare_payload() -> PreparedPayload:
     release = github_latest_release(UPSTREAM)
     archive_asset = unique_release_asset(release, ASSET_PATTERN, "versioned ZIP")
-    installer_asset = unique_release_asset(
-        release, INSTALLER_PATTERN, "install_dvdcss.sh asset"
-    )
     archive_url = release_asset_url(archive_asset)
-    installer_url = release_asset_url(installer_asset)
     archive_data = http_get_bytes(archive_url)
-    installer_data = http_get_bytes(installer_url, accept="text/plain")
     members = read_archive_members(archive_data)
     selected = selected_files(members)
 
     bundled_installers = [
         member.data for member in members if member.path == INSTALLER_PATH
     ]
-    if bundled_installers != [installer_data]:
-        raise RuntimeError(
-            "The standalone libdvdcss installer differs from the release ZIP copy"
-        )
+    if len(bundled_installers) != 1:
+        raise RuntimeError("MiSTer DVD ZIP must contain exactly one installer")
+    installer_data = bundled_installers[0]
+    installer_url = f"{archive_url}#{INSTALLER_PATH}"
 
     captured, downloads = run_installer(installer_data)
     metadata = source_metadata(installer_url, installer_data, downloads)

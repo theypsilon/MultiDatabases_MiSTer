@@ -1315,6 +1315,7 @@ class MisterDvdGeneratorTests(unittest.TestCase):
             self.member("DVD_INSTALL.txt"),
             self.member("MiSTer_DVDcss"),
             self.member("_Other/DVD_20260830.rbf"),
+            self.member("Scripts/dvd_report.py"),
             self.member("Scripts/install_dvdcss.sh"),
             *(self.member(path) for path in extra),
         ]
@@ -1328,6 +1329,7 @@ class MisterDvdGeneratorTests(unittest.TestCase):
             archive.writestr("DVD_INSTALL.txt", b"instructions")
             archive.writestr("MiSTer_DVDcss", b"main")
             archive.writestr("_Other/DVD_20260830.rbf", b"core")
+            archive.writestr("Scripts/dvd_report.py", b"report")
             archive.writestr("Scripts/install_dvdcss.sh", installer)
         return output.getvalue()
 
@@ -1336,9 +1338,48 @@ class MisterDvdGeneratorTests(unittest.TestCase):
         self.assertEqual(
             [
                 "MiSTer_DVDcss",
+                "Scripts/dvd_report.py",
                 "_Other/DVD_20260830.rbf",
             ],
             [destination for destination, _ in selected],
+        )
+
+    def test_uses_the_installer_bundled_in_the_release_zip(self) -> None:
+        installer = self.installer()
+        archive_data = self.release_zip(installer)
+        release = {
+            "tag_name": "v0.4.0",
+            "assets": [
+                {
+                    "name": "MiSTer_DVD_v0.4.0.zip",
+                    "browser_download_url": "https://example.com/MiSTer_DVD_v0.4.0.zip",
+                }
+            ],
+        }
+        captured = (
+            self.generator.CapturedFile(
+                install_path="dvdcss/libdvdcss.so.2", data=b"library"
+            ),
+        )
+
+        with (
+            patch.object(self.generator, "github_latest_release", return_value=release),
+            patch.object(
+                self.generator, "http_get_bytes", return_value=archive_data
+            ) as download,
+            patch.object(
+                self.generator, "run_installer", return_value=(captured, ())
+            ) as run_installer,
+        ):
+            payload = self.generator.prepare_payload()
+
+        download.assert_called_once_with(
+            "https://example.com/MiSTer_DVD_v0.4.0.zip"
+        )
+        run_installer.assert_called_once_with(installer)
+        self.assertEqual(
+            "https://example.com/MiSTer_DVD_v0.4.0.zip#Scripts/install_dvdcss.sh",
+            payload.installer_url,
         )
 
     def test_withholds_the_region_setting_script(self) -> None:
@@ -1347,7 +1388,11 @@ class MisterDvdGeneratorTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            ["MiSTer_DVDcss", "_Other/DVD_20260830.rbf"],
+            [
+                "MiSTer_DVDcss",
+                "Scripts/dvd_report.py",
+                "_Other/DVD_20260830.rbf",
+            ],
             [destination for destination, _ in selected],
         )
 
@@ -1373,7 +1418,11 @@ class MisterDvdGeneratorTests(unittest.TestCase):
         selected = self.generator.selected_files(members)
 
         self.assertEqual(
-            ["MiSTer_DVDcss", "_Other/DVD_20260830.rbf"],
+            [
+                "MiSTer_DVDcss",
+                "Scripts/dvd_report.py",
+                "_Other/DVD_20260830.rbf",
+            ],
             [destination for destination, _ in selected],
         )
 
@@ -1541,7 +1590,11 @@ class MisterDvdGeneratorTests(unittest.TestCase):
             [item.install_path for item in restored.files],
         )
         self.assertEqual(
-            ["MiSTer_DVDcss", "_Other/DVD_20260830.rbf"],
+            [
+                "MiSTer_DVDcss",
+                "Scripts/dvd_report.py",
+                "_Other/DVD_20260830.rbf",
+            ],
             [destination for destination, _ in restored.selected_files],
         )
 
@@ -1559,7 +1612,11 @@ class MisterDvdGeneratorTests(unittest.TestCase):
             self.generator.selected_files(members)
 
     def test_requires_the_custom_main_and_installer(self) -> None:
-        for required in ("MiSTer_DVDcss", "Scripts/install_dvdcss.sh"):
+        for required in (
+            "MiSTer_DVDcss",
+            "Scripts/dvd_report.py",
+            "Scripts/install_dvdcss.sh",
+        ):
             with self.subTest(required=required):
                 members = [
                     member

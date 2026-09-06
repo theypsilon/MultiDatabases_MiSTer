@@ -32,6 +32,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          BASE_BRANCH: main
         shell: bash
         run: |
           set -euo pipefail
@@ -39,6 +40,10 @@ jobs:
           # The build runs every 20 minutes, so a red build fires this workflow
           # again and again. One open repair pull request is enough: stop here
           # until it is merged or closed.
+          gh pr list --base "$BASE_BRANCH" --state open --limit 100 \
+            --json number --jq '.[].number' \
+            | sort -n > "$RUNNER_TEMP/open-prs-before.txt"
+
           open=$(gh pr list --state open --limit 100 \
             --json number,headRefName,labels \
             | jq -r --arg label "$REPAIR_LABEL" \
@@ -223,15 +228,17 @@ jobs:
 
           if [ -z "$pr" ]; then
             # Agent mode does not update the action's branch_name output when
-            # Claude creates a branch itself with git. The guard established
-            # that no repair PR existed before Claude ran, and concurrency
-            # prevents another repair job from racing this lookup.
+            # Claude creates a branch itself with git. Find the PR created by
+            # this run without depending on the name Claude gave its branch.
             mapfile -t candidates < <(
               gh pr list --base "$BASE_BRANCH" --state open --limit 100 \
                 --json number,headRefName \
-                | jq -r --arg prefix "$REPAIR_BRANCH_PREFIX" \
-                  '.[] | select(.headRefName | startswith($prefix))
-                    | [.number, .headRefName] | @tsv'
+                | jq -r '.[] | [.number, .headRefName] | @tsv' \
+                | while IFS=$'\t' read -r number branch; do
+                    if ! grep -Fxq "$number" "$RUNNER_TEMP/open-prs-before.txt"; then
+                      printf '%s\t%s\n' "$number" "$branch"
+                    fi
+                  done
             )
 
             if [ "${#candidates[@]}" -ne 1 ]; then
