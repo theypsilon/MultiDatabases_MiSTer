@@ -1647,10 +1647,9 @@ class NBloodGeneratorTests(unittest.TestCase):
     )
     PAYLOADS = {
         "Mister_NBlood": ARM_BINARY + b"wrapper",
-        "_Computer/NBlood.rbf": bytes(1_000_000),
+        "_Other/NBlood.rbf": bytes(1_000_000),
         "games/NBlood/NBlood": ARM_BINARY + b"engine",
-        "games/NBlood/README_DATA.md": b"upstream instructions",
-        "docs/unrelated.txt": b"future unrelated file",
+        "games/NBlood/README_DATA.md": b"# Game data\n\nSupply your own copy.\n",
     }
 
     def upstream_database(self):
@@ -1674,40 +1673,67 @@ class NBloodGeneratorTests(unittest.TestCase):
             "tag_dictionary": {},
         }
 
-    def test_reads_the_single_upstream_database_document(self) -> None:
-        expected = self.upstream_database()
+    def upstream_archive(self) -> bytes:
         output = io.BytesIO()
         with zipfile.ZipFile(output, "w") as archive:
-            archive.writestr("db.json", json.dumps(expected))
+            archive.writestr("db.json", json.dumps(self.upstream_database()))
+        return output.getvalue()
 
+    def test_reads_the_single_upstream_database_document(self) -> None:
         self.assertEqual(
-            expected,
-            self.generator.read_upstream_database(output.getvalue()),
+            self.upstream_database(),
+            self.generator.read_upstream_database(self.upstream_archive()),
         )
 
-    def test_selects_only_three_files_and_moves_the_core_to_other(self) -> None:
+    def test_mirrors_only_the_reviewed_files_at_their_upstream_paths(self) -> None:
         selected = self.generator.select_published_files(self.upstream_database())
 
         self.assertEqual(
-            [
-                ("Mister_NBlood", "Mister_NBlood"),
-                ("_Computer/NBlood.rbf", "_Other/NBlood.rbf"),
-                ("games/NBlood/NBlood", "games/NBlood/NBlood"),
-            ],
-            [(item.source_path, item.destination) for item in selected],
+            ["Mister_NBlood", "_Other/NBlood.rbf", "games/NBlood/NBlood"],
+            [item.path for item in selected],
         )
-        self.assertEqual(3, len(selected))
-        core = next(item for item in selected if item.destination.endswith(".rbf"))
-        self.assertTrue(core.url.endswith("/_Computer/NBlood.rbf"))
-        self.assertNotIn("README_DATA.md", " ".join(item.url for item in selected))
-        self.assertNotIn("unrelated.txt", " ".join(item.url for item in selected))
+        for item in selected:
+            self.assertEqual(self.REVISION, item.revision)
+            self.assertEqual(
+                "https://raw.githubusercontent.com/meathax/blood/"
+                f"{self.REVISION}/{item.path}",
+                item.url,
+            )
 
-    def test_rejects_a_missing_or_renamed_required_file(self) -> None:
+    def test_rejects_unreviewed_upstream_files(self) -> None:
         database = self.upstream_database()
-        del database["files"]["games/NBlood/NBlood"]
+        database["files"]["_Computer/NBlood.rbf"] = dict(
+            database["files"]["_Other/NBlood.rbf"]
+        )
+        database["files"]["games/NBlood/nblood_install"] = {
+            "hash": "0" * 32,
+            "size": 1_000_000,
+        }
+        database["files"]["docs/unrelated.txt"] = {"hash": "0" * 32, "size": 12}
 
         with self.assertRaisesRegex(
-            RuntimeError, "missing required file games/NBlood/NBlood"
+            RuntimeError,
+            "unreviewed files: _Computer/NBlood.rbf, docs/unrelated.txt, "
+            "games/NBlood/nblood_install",
+        ):
+            self.generator.select_published_files(database)
+
+    def test_rejects_a_missing_required_file(self) -> None:
+        for path in ("games/NBlood/NBlood", "_Other/NBlood.rbf"):
+            with self.subTest(path=path):
+                database = self.upstream_database()
+                del database["files"][path]
+                with self.assertRaisesRegex(
+                    RuntimeError, f"missing required file {path}"
+                ):
+                    self.generator.select_published_files(database)
+
+    def test_rejects_implausible_upstream_sizes(self) -> None:
+        database = self.upstream_database()
+        database["files"]["_Other/NBlood.rbf"]["size"] = 1_024
+
+        with self.assertRaisesRegex(
+            RuntimeError, "NBlood.rbf has an implausible size"
         ):
             self.generator.select_published_files(database)
 
@@ -1728,34 +1754,73 @@ class NBloodGeneratorTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "must come from one commit"):
             self.generator.select_published_files(database)
 
-    def test_downloaded_files_must_match_metadata_and_binary_types(self) -> None:
+    def test_downloaded_files_must_match_metadata_and_payload_types(self) -> None:
         selected = self.generator.select_published_files(self.upstream_database())
         for item in selected:
-            self.generator.validate_published_file(
-                item, self.PAYLOADS[item.source_path]
-            )
+            self.generator.validate_published_file(item, self.PAYLOADS[item.path])
+        by_path = {item.path: item for item in selected}
 
-        wrapper = selected[0]
+        wrapper = by_path["Mister_NBlood"]
         bad_wrapper = b"not-elf" + bytes(wrapper.size - len(b"not-elf"))
-        bad_item = self.generator.PublishedFile(
-            source_path=wrapper.source_path,
-            destination=wrapper.destination,
-            url=wrapper.url,
-            revision=wrapper.revision,
-            size=len(bad_wrapper),
-            digest=hashlib.md5(bad_wrapper).hexdigest(),
-        )
         with self.assertRaisesRegex(RuntimeError, "not an ELF"):
-            self.generator.validate_published_file(bad_item, bad_wrapper)
+            self.generator.validate_published_file(
+                wrapper._replace(digest=hashlib.md5(bad_wrapper).hexdigest()),
+                bad_wrapper,
+            )
 
         with self.assertRaisesRegex(RuntimeError, "does not match its MD5"):
             self.generator.validate_published_file(
-                wrapper, self.PAYLOADS[wrapper.source_path][:-1] + b"x"
+                wrapper, self.PAYLOADS[wrapper.path][:-1] + b"x"
+            )
+
+        core = by_path["_Other/NBlood.rbf"]
+        with self.assertRaisesRegex(RuntimeError, "wrong size"):
+            self.generator.validate_published_file(
+                core, self.PAYLOADS[core.path][:-1]
             )
 
     def test_keeps_the_database_url_uncompressed(self) -> None:
-        source = (ROOT / "nblood" / "generate_db.py").read_text(encoding="utf-8")
-        self.assertIn("compressed_db_url=False", source)
+        upstream = self.upstream_database()
+        downloads = {
+            upstream["base_files_url"] + path: data
+            for path, data in self.PAYLOADS.items()
+        }
+        downloads[self.generator.UPSTREAM_DATABASE_URL] = self.upstream_archive()
+
+        # Tag discovery uses an external module; keep this output test offline.
+        def apply_tags(database, **kwargs):
+            database["tag_dictionary"] = {"nblood": 0}
+            for descriptions in (database["files"], database["folders"]):
+                for description in descriptions.values():
+                    description["tags"] = [0]
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "nblood"
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "generate_db.py",
+                        "--output", str(output),
+                        "--repository", "theypsilon/MultiDatabases_MiSTer",
+                        "--timestamp", "1",
+                    ],
+                ),
+                patch.object(
+                    self.generator, "http_get_bytes", side_effect=downloads.__getitem__
+                ),
+                patch("db_helpers.apply_standard_tags", side_effect=apply_tags),
+            ):
+                self.assertEqual(0, self.generator.main())
+
+            database = json.loads((output / "db.json").read_bytes())
+
+        self.assertEqual("MultiDatabases/nblood", database["db_id"])
+        self.assertEqual(
+            "https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/"
+            "db/nblood/db.json",
+            database["db_url"],
+        )
 
 
 if __name__ == "__main__":
