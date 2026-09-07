@@ -155,7 +155,10 @@ def select_published_files(database: Mapping[str, Any]) -> tuple[PublishedFile, 
         description = files.get(source_path)
         if not isinstance(description, dict):
             raise RuntimeError(
-                f"NBlood upstream database is missing required file {source_path}"
+                f"NBlood upstream database is missing required file {source_path}; "
+                "review what upstream renamed or dropped, and the installation "
+                "instructions that depend on it, before recording the new path in "
+                "SOURCE_DESTINATIONS"
             )
 
         digest = description.get("hash")

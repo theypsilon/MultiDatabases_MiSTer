@@ -1711,6 +1711,19 @@ class NBloodGeneratorTests(unittest.TestCase):
         ):
             self.generator.select_published_files(database)
 
+        # Following a renamed core is a review decision, so the failure has to
+        # name the constant that records it instead of reading like a defect.
+        database = self.upstream_database()
+        core_source = next(
+            source
+            for source, _ in self.generator.SOURCE_DESTINATIONS
+            if source.endswith(".rbf")
+        )
+        database["files"]["_Menu/NBlood.rbf"] = database["files"].pop(core_source)
+
+        with self.assertRaisesRegex(RuntimeError, "SOURCE_DESTINATIONS"):
+            self.generator.select_published_files(database)
+
     def test_requires_immutable_payload_urls_from_one_source_commit(self) -> None:
         database = self.upstream_database()
         database["base_files_url"] = (
