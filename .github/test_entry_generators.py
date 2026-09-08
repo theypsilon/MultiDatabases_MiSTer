@@ -1057,7 +1057,20 @@ class MegaVgmDriveReleaseTests(unittest.TestCase):
         return self.release("v1.0.1", *assets, date=self.STABLE_DATE)
 
     def select(self, *releases):
+        """Selection with the reviewed pin lifted, exercising the rule below."""
+        with patch.object(self.generator, "PINNED_RELEASE", None):
+            return self.generator.select_core_release(list(releases))
+
+    def select_pinned(self, *releases):
+        """Selection as the generator runs today, pinned to a reviewed tag."""
         return self.generator.select_core_release(list(releases))
+
+    def pinned_release(self, *assets: str, **flags):
+        if not assets:
+            assets = ("MegaVGMDrive_MiSTer_v1.0.2.rbf", "SHA256SUMS.txt")
+        return self.release(
+            self.generator.PINNED_RELEASE, *assets, date=self.NEWER_DATE, **flags
+        )
 
     def test_follows_the_highest_stable_release(self) -> None:
         release, asset = self.select(
@@ -1163,6 +1176,57 @@ class MegaVgmDriveReleaseTests(unittest.TestCase):
                     "audio-gold", "MegaVGMdrive_MiSTer.rbf", date=self.OLDER_DATE
                 ),
             )
+
+    PINNED_DATE = "2026-09-08T14:20:20Z"
+
+    def test_serves_the_reviewed_pinned_core_instead_of_the_v2_0_package(self) -> None:
+        release, asset = self.select_pinned(
+            self.release(
+                "v2.0",
+                "MegaVGMPlayer_v2.0.zip",
+                "MegaVGMPlayer_v2.0.zip.sha256",
+                date=self.PINNED_DATE,
+            ),
+            self.pinned_release(),
+            self.stable_release(),
+        )
+        self.assertEqual("v1.0.2", release["tag_name"])
+        self.assertEqual("MegaVGMDrive_MiSTer_v1.0.2.rbf", asset["name"])
+
+    def test_the_pin_holds_over_a_newer_stable_release_shipping_a_core(self) -> None:
+        release, asset = self.select_pinned(
+            self.release(
+                "v2.1", "MegaVGMDrive_MiSTer_v2.1.rbf", date=self.PINNED_DATE
+            ),
+            self.pinned_release(),
+        )
+        self.assertEqual(self.generator.PINNED_RELEASE, release["tag_name"])
+        self.assertEqual("MegaVGMDrive_MiSTer_v1.0.2.rbf", asset["name"])
+
+    def test_the_pin_holds_over_a_newer_snapshot_shipping_a_core(self) -> None:
+        release, _ = self.select_pinned(
+            self.release(
+                "YM2610-2160-beta", "VGM_MD_MiSTer_YM2610.rbf", date=self.PINNED_DATE
+            ),
+            self.pinned_release(),
+        )
+        self.assertEqual(self.generator.PINNED_RELEASE, release["tag_name"])
+
+    def test_rejects_a_pinned_release_upstream_stopped_publishing(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "no longer publishes v1.0.2"):
+            self.select_pinned(self.stable_release())
+
+    def test_rejects_a_pinned_release_turned_into_a_prerelease(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "no longer publishes v1.0.2"):
+            self.select_pinned(self.pinned_release(prerelease=True))
+
+    def test_rejects_a_pinned_release_that_stopped_shipping_its_core(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "found: none"):
+            self.select_pinned(self.pinned_release("MegaVGMPlayer_v1.0.2.zip"))
+
+    def test_rejects_a_pinned_release_whose_core_was_renamed(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "MegaVGMDrive_v1.0.2.rbf"):
+            self.select_pinned(self.pinned_release("MegaVGMDrive_v1.0.2.rbf"))
 
 
 class Sm64H2xGeneratorTests(unittest.TestCase):
