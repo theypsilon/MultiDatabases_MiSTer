@@ -68,7 +68,11 @@ jobs:
       - name: Ask Claude for a fix
         id: claude
         if: steps.guard.outputs.proceed == 'true'
-        uses: anthropics/claude-code-action@v1
+        # Pinned to v1.0.217. v1.0.218 ships Claude Code 2.1.265, whose
+        # installer reports success but leaves no launcher on ubuntu-latest,
+        # so every run fails before Claude starts. Return to @v1 once
+        # anthropics/claude-code-action#1817 is fixed.
+        uses: anthropics/claude-code-action@9c5ddab2e6d17b83ea679153b31f1d5f023cf636 # v1.0.217
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -352,7 +356,11 @@ jobs:
 
       - name: Apply the reviewed decision
         id: claude
-        uses: anthropics/claude-code-action@v1
+        # Pinned to v1.0.217. v1.0.218 ships Claude Code 2.1.265, whose
+        # installer reports success but leaves no launcher on ubuntu-latest,
+        # so every run fails before Claude starts. Return to @v1 once
+        # anthropics/claude-code-action#1817 is fixed.
+        uses: anthropics/claude-code-action@9c5ddab2e6d17b83ea679153b31f1d5f023cf636 # v1.0.217
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
