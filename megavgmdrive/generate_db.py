@@ -32,6 +32,22 @@ CORE_ASSET = re.compile(r".*MiSTer.*\.rbf", re.IGNORECASE)
 ANY_CORE_ASSET = re.compile(r".*\.rbf", re.IGNORECASE)
 MINIMUM_CORE_SIZE = 1_000_000
 
+# OPEN QUESTION (upstream v2.0, 2026-09-08): the highest stable release ships no
+# .rbf asset at all, only MegaVGMPlayer_v2.0.zip, so core_asset() fails and the
+# database stays on the v1.0.2 core - the gate working as designed. The cores
+# moved inside that ZIP, which carries two of them under
+# media/fat/_Custom Cores/Cores/: MegaVGMPlayer_Transport13FadeOnly_A_MiSTer.rbf
+# (3,348,228 bytes, sha256
+# 5755b74d9b1e10e1da1d6c101892bc95ca8960851a851cc9076d1861c9571f1e) and the
+# matching _B_MiSTer.rbf (3,087,284 bytes, sha256
+# b435417f268a81a39af6bf2408f364945d151e391425775ab7d01ed4899bec95). Neither is
+# the core on its own: an ARM supervisor in the same ZIP switches between them at
+# run time, next to a modified Main, a Remote service and an install.sh that
+# appends to linux/user-startup.sh, a root folder no database may write. So v2.0
+# is a hybrid FPGA/ARM package rather than a renamed asset, and a human decides
+# whether this entry records v2.0 as a release it deliberately does not follow
+# and keeps serving the v1.0.2 core, or is redesigned around that package.
+
 # Upstream ships beta snapshots as ordinary releases, under descriptive tags
 # instead of a version. Snapshots are not published, but one that carries a
 # core is a tagging change that has to be reviewed, so it stops the build
