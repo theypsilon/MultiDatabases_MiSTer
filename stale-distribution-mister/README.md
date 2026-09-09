@@ -44,12 +44,13 @@ official database resumes normal Linux updates. Downloader's own
 
 ## Installation
 
-Point the existing `[distribution_mister]` section of `/media/fat/downloader.ini` at
-this database instead; add the section if the file does not have one yet:
+Open `/media/fat/downloader.ini` and find the `[distribution_mister]` section. Set its db_url line to the value shown below.
+
+If the section doesn’t exist, add both lines:
 
 ```ini
 [distribution_mister]
 db_url = https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/stale-distribution-mister/db.json.zip
 ```
 
-Then run the MiSTer updaters as usual.
+Then run the update_all as usual.
