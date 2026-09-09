@@ -13,6 +13,12 @@ from db_helpers import DB_NAMESPACE, validate_database
 from generate_all import ROOT, discover_folders
 
 
+# Entries that republish the official distribution under Downloader's reserved
+# ID. Their document is upstream's, not this repository's layout, so the shared
+# validation does not apply, and Downloader refuses a drop-in for that section.
+DISTRIBUTION_CLONES = {"stale-distribution-mister": "distribution_mister"}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate generated DB bundles")
     parser.add_argument("directory", nargs="?", type=Path, default=Path("dist"))
@@ -33,8 +39,8 @@ def main() -> int:
 
         encoded = json_path.read_bytes()
         database = json.loads(encoded)
-        validate_database(database)
-        if database["db_id"] != f"{DB_NAMESPACE}/{folder}":
+        expected_id = DISTRIBUTION_CLONES.get(folder, f"{DB_NAMESPACE}/{folder}")
+        if database["db_id"] != expected_id:
             raise RuntimeError(f"Unexpected db_id for {folder}: {database['db_id']}")
 
         with zipfile.ZipFile(zip_path) as archive:
@@ -43,6 +49,11 @@ def main() -> int:
             if archive.read("db.json") != encoded:
                 raise RuntimeError(f"ZIP and JSON differ for {folder}")
 
+        if folder in DISTRIBUTION_CLONES:
+            print(f"Validated {database['db_id']}", flush=True)
+            continue
+
+        validate_database(database)
         sanitized = database["db_id"].replace("/", "_")
         ini_path = bundle / f"downloader_{sanitized}.ini"
         drop_in_zip = bundle / f"downloader_{sanitized}.zip"

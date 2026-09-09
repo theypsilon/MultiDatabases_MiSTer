@@ -30,6 +30,7 @@ outside the databases.
 | [SM64 H2X](sm64-h2x/) | 640×240 Super Mario 64 BPS patch for the N64 core | [Inspect](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fsm64-h2x%2Fdb.json) · [Upstream](https://github.com/DavidFallows/sm64) |
 | [Solarus MiSTer](solarus/) | Hybrid FPGA/ARM Solarus 2D action-RPG engine | [Inspect](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fsolarus%2Fdb.json) · [Upstream](https://github.com/gmcnaught/solarus-mister) |
 | [Sonic Mania MiSTer](sonic-mania/) | Hybrid FPGA/ARM Sonic Mania port | [Inspect](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fsonic-mania%2Fdb.json) · [Upstream](https://github.com/kimchiman52/sonic-mania-mister) |
+| [Stale Distribution MiSTer](stale-distribution-mister/) | The official distribution with Linux held on release 20250402, published under the `distribution_mister` ID | [Inspect](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fstale-distribution-mister%2Fdb.json.zip) · [Upstream](https://github.com/MiSTer-devel/Distribution_MiSTer) |
 
 ## Contributing
 

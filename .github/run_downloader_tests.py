@@ -5,11 +5,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
 
-from db_helpers import DB_NAMESPACE
 from generate_all import ROOT, discover_folders
 
 
@@ -24,7 +24,9 @@ def run_downloader_tests(tester: Path, directory: Path, *, root: Path = ROOT) ->
             print(f"Skipping {folder}: nothing to publish", flush=True)
             continue
 
-        db_id = f"{DB_NAMESPACE}/{folder}"
+        # The tester needs the section name Downloader will match against the
+        # database's own ID, so it is read from the bundle instead of assumed.
+        db_id = json.loads(database.read_bytes())["db_id"]
         print(f"Testing {db_id} with MiSTer Downloader...", flush=True)
         subprocess.run(
             [sys.executable, str(tester), db_id, str(database)],

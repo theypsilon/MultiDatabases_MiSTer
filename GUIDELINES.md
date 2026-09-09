@@ -6,7 +6,14 @@
   `<slug>/generate_db.py` and `<slug>/README.md`; do not maintain a central
   folder list.
 - Build databases through `.github/db_helpers.py`. Use
-  `MultiDatabases/<slug>` as the ID. Choose the `db_url` when the entry is
+  `MultiDatabases/<slug>` as the ID. The one exception is an entry that
+  republishes the official distribution: it keeps the `distribution_mister`
+  ID, because the Downloader accepts the system files from that ID alone,
+  replaces only the top-level `linux` section of upstream's document, and
+  writes its own bundle, since the shared helpers model this repository's
+  layout rather than upstream's. `validate_bundles.py` lists such entries in
+  `DISTRIBUTION_CLONES` and checks only their bundle consistency.
+  Choose the `db_url` when the entry is
   first added: the uncompressed `db/<slug>/db.json` by default, or the
   compressed `db/<slug>/db.json.zip` when that entry is expected to generate a
   database of 10 KB or more. `write_bundle` emits both files either way; only
@@ -46,7 +53,11 @@
 - The entry README must include its inspector-linked ID, upstream and database
   URL, a short description, and installation instructions.
 - Installation uses the generated drop-in ZIP: extract it to `/media/fat` and
-  run the MiSTer updaters. Do not instruct users to edit `downloader.ini`.
+  run the MiSTer updaters. Do not instruct users to edit `downloader.ini`. The
+  one exception is a `distribution_mister` clone: the Downloader refuses a
+  drop-in that defines that section, so the entry ships no drop-in and its
+  README tells users to point the `[distribution_mister]` section of
+  `downloader.ini` at the database URL instead.
 - State every required `MiSTer.ini` change and user-supplied BIOS/game file, or
   explicitly say none are required. Identify hybrid FPGA/ARM software where
   applicable.

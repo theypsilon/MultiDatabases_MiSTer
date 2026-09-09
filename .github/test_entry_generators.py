@@ -1889,3 +1889,113 @@ class NBloodGeneratorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StaleDistributionMisterGeneratorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("stale-distribution-mister")
+
+    PINNED_LINUX = {
+        "hash": "8dc3acae7d758a80a363fbd7ad31d95d",
+        "size": 93_727_644,
+        "url": (
+            "https://raw.githubusercontent.com/MiSTer-devel/"
+            "SD-Installer-Win64_MiSTer/"
+            "b8531c7848526d9a8227841923cc4a493cb6e631/release_20250402.7z"
+        ),
+        "version": "250402",
+    }
+
+    def upstream_database(self) -> dict:
+        return {
+            "v": 1,
+            "db_id": "distribution_mister",
+            "db_url": self.generator.UPSTREAM_DATABASE_URL,
+            "timestamp": 1_788_930_836,
+            "base_files_url": "https://raw.githubusercontent.com/MiSTer-devel/Distribution_MiSTer/b704343568bfd3aab8a1c62671c9e58c52ea14e3/",
+            "files": {
+                "MiSTer": {"hash": "1" * 32, "path": "system", "reboot": True, "size": 1_162_128, "tags": [0]},
+                "linux/pdfviewer": {"hash": "3" * 32, "path": "system", "size": 42_122_340, "tags": [0]},
+            },
+            "folders": {"linux": {"tags": [0]}},
+            "tag_dictionary": {"essential": 0},
+            "archives": {"nes_palettes": {"format": "zip", "extract": "all", "summary_file": {}}},
+            "linux": {
+                "hash": "8" * 32,
+                "size": 117_936_766,
+                "url": (
+                    "https://github.com/MiSTer-devel/Distribution_MiSTer/releases/"
+                    "download/all_releases/linux_release_20260907.7z"
+                ),
+                "version": "260907",
+            },
+        }
+
+    def upstream_archive(self, database: dict | None = None) -> bytes:
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr(
+                "db.json", json.dumps(database or self.upstream_database())
+            )
+        return output.getvalue()
+
+    def test_reads_the_official_database_document(self) -> None:
+        self.assertEqual(
+            self.upstream_database(),
+            self.generator.read_upstream_database(self.upstream_archive()),
+        )
+
+    def test_rejects_another_database_or_one_without_a_linux_section(self) -> None:
+        database = self.upstream_database()
+        database["db_id"] = "MultiDatabases/other"
+        with self.assertRaisesRegex(RuntimeError, "Unexpected Distribution database ID"):
+            self.generator.read_upstream_database(self.upstream_archive(database))
+
+        database = self.upstream_database()
+        del database["linux"]
+        with self.assertRaisesRegex(RuntimeError, "no longer carries a linux section"):
+            self.generator.read_upstream_database(self.upstream_archive(database))
+
+    def test_replaces_only_the_linux_section(self) -> None:
+        upstream = self.upstream_database()
+        database = self.generator.pin_linux(upstream)
+
+        expected = dict(upstream)
+        expected["linux"] = self.PINNED_LINUX
+        self.assertEqual(expected, database)
+        self.assertEqual(self.upstream_database(), upstream)
+
+    def test_downloaded_linux_release_must_match_its_pin(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "not a 7z archive"):
+            self.generator.validate_linux_payload(b"PK" + bytes(93_727_642))
+        with self.assertRaisesRegex(RuntimeError, "wrong size"):
+            self.generator.validate_linux_payload(b"7z\xbc\xaf'\x1c")
+        with self.assertRaisesRegex(RuntimeError, "does not match its MD5"):
+            self.generator.validate_linux_payload(
+                b"7z\xbc\xaf'\x1c" + bytes(93_727_644 - 6)
+            )
+
+    def test_publishes_the_document_as_is_and_preserves_an_unchanged_bundle(self) -> None:
+        database = self.generator.pin_linux(self.upstream_database())
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "stale-distribution-mister"
+            self.assertTrue(self.generator.write_bundle(database, output))
+            self.assertEqual(
+                ["db.json", "db.json.zip"],
+                sorted(path.name for path in output.iterdir()),
+            )
+            encoded = (output / "db.json").read_bytes()
+            self.assertEqual(database, json.loads(encoded))
+            with zipfile.ZipFile(output / "db.json.zip") as archive:
+                self.assertEqual(encoded, archive.read("db.json"))
+
+            # An upstream regeneration with the same content changes only the
+            # timestamp, which must not republish the bundle.
+            retimed = dict(database, timestamp=database["timestamp"] + 1)
+            self.assertFalse(self.generator.write_bundle(retimed, output))
+            self.assertEqual(encoded, (output / "db.json").read_bytes())
+
+            changed = dict(database, tag_dictionary={"essential": 0, "nes": 1})
+            self.assertTrue(self.generator.write_bundle(changed, output))
+            self.assertEqual(changed, json.loads((output / "db.json").read_bytes()))
