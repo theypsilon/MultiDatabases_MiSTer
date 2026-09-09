@@ -32,6 +32,22 @@ CORE_ASSET = re.compile(r".*MiSTer.*\.rbf", re.IGNORECASE)
 ANY_CORE_ASSET = re.compile(r".*\.rbf", re.IGNORECASE)
 MINIMUM_CORE_SIZE = 1_000_000
 
+# Reviewed pin (pull request #7, 2026-09-08): upstream v2.0 stopped attaching a
+# core to its releases and turned MegaVGMPlayer into a self-installing hybrid
+# FPGA/ARM package. MegaVGMPlayer_v2.0.zip carries two engines under
+# "_Custom Cores/Cores/" that an ARM supervisor picks between at run time, next
+# to a modified Main, a Remote service and an install.sh that appends to
+# linux/user-startup.sh, a root folder no database may write, so no database can
+# install v2.0 the way this entry installs a core. Review chose to not follow
+# v2.0 and to keep serving the last release that shipped an installable MiSTer
+# core, pinned there for the foreseeable future: while this constant is set,
+# releases published after it are skipped on purpose instead of failing the
+# build. The pin still fails closed, going red if the pinned release stops being
+# published or stops shipping exactly one MiSTer core, and clearing it restores
+# the "follow the highest stable release" rule below, which is kept intact for
+# whenever a human revisits this entry.
+PINNED_RELEASE: str | None = "v1.0.2"
+
 # Upstream ships beta snapshots as ordinary releases, under descriptive tags
 # instead of a version. Snapshots are not published, but one that carries a
 # core is a tagging change that has to be reviewed, so it stops the build
@@ -83,6 +99,25 @@ def core_asset(release: Mapping[str, Any]) -> dict[str, Any]:
     return matches[0]
 
 
+def pinned_core_release(
+    published: Sequence[Mapping[str, Any]],
+) -> tuple[Mapping[str, Any], dict[str, Any]]:
+    """The reviewed pinned release, or a loud failure if upstream moved it.
+
+    Staying on an older core is deliberate here, so newer releases are not
+    consulted at all, but the pin is still checked against upstream on every
+    run: the release has to be published and to ship exactly one MiSTer core.
+    """
+    for release in published:
+        if release_tag(release) == PINNED_RELEASE:
+            return release, core_asset(release)
+    raise RuntimeError(
+        f"{UPSTREAM} no longer publishes {PINNED_RELEASE}, the release this "
+        "entry is pinned to. Review upstream, then either move PINNED_RELEASE "
+        "or clear it to follow the highest stable release again."
+    )
+
+
 def select_core_release(
     releases: Sequence[Mapping[str, Any]],
 ) -> tuple[Mapping[str, Any], dict[str, Any]]:
@@ -92,12 +127,19 @@ def select_core_release(
     releases, but every way of ending up on a stale core - the newest stable
     release dropping or renaming its core, or a snapshot carrying one - fails
     the build instead, so the database is either current or visibly broken.
+
+    A reviewed `PINNED_RELEASE` takes precedence over all of that: it is a
+    human's decision to stop following upstream, so it is honoured before any
+    newer release is looked at.
     """
     published = [
         release
         for release in releases
         if not release.get("draft") and not release.get("prerelease")
     ]
+
+    if PINNED_RELEASE is not None:
+        return pinned_core_release(published)
 
     stable: list[tuple[tuple[int, ...], Mapping[str, Any]]] = []
     for release in published:
@@ -138,7 +180,8 @@ def main() -> int:
             f"{asset.get('name')} is too small ({len(rbf_data)} bytes) to be "
             "a MegaVGMDrive core"
         )
-    print(f"MegaVGMDrive core from release {release_tag(release)}")
+    pinned = " (reviewed pin)" if PINNED_RELEASE is not None else ""
+    print(f"MegaVGMDrive core from release {release_tag(release)}{pinned}")
 
     mgl_path = Path(__file__).with_name("MegaVGMDrive.mgl")
     mgl_url = github_raw_url(
