@@ -44,10 +44,7 @@ official database resumes normal Linux updates. Downloader's own
 
 ## Installation
 
-The Downloader only accepts the MiSTer main binary, `menu.rbf` and the Linux
-system files from the database called `distribution_mister`, and it refuses to
-read that database from a drop-in file, so this entry has no drop-in ZIP. Point
-the existing `[distribution_mister]` section of `/media/fat/downloader.ini` at
+Point the existing `[distribution_mister]` section of `/media/fat/downloader.ini` at
 this database instead; add the section if the file does not have one yet:
 
 ```ini
