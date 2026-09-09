@@ -52,8 +52,4 @@ this database instead; add the section if the file does not have one yet:
 db_url = https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/stale-distribution-mister/db.json.zip
 ```
 
-Then run the MiSTer updaters as usual. The section name must match the database
-ID, so `downloader.ini` holds either this URL or the official one, never both.
-
-No `MiSTer.ini` changes are required, and no BIOS or game files are required
-beyond what the official distribution already expects.
+Then run the MiSTer updaters as usual.
