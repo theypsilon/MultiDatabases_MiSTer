@@ -1887,10 +1887,6 @@ class NBloodGeneratorTests(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class StaleDistributionMisterGeneratorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -1957,6 +1953,11 @@ class StaleDistributionMisterGeneratorTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "no longer carries a linux section"):
             self.generator.read_upstream_database(self.upstream_archive(database))
 
+        database = self.upstream_database()
+        database["linux"] = None
+        with self.assertRaisesRegex(RuntimeError, "no longer carries a linux section"):
+            self.generator.read_upstream_database(self.upstream_archive(database))
+
     def test_replaces_only_the_linux_section(self) -> None:
         upstream = self.upstream_database()
         database = self.generator.pin_linux(upstream)
@@ -1999,3 +2000,7 @@ class StaleDistributionMisterGeneratorTests(unittest.TestCase):
             changed = dict(database, tag_dictionary={"essential": 0, "nes": 1})
             self.assertTrue(self.generator.write_bundle(changed, output))
             self.assertEqual(changed, json.loads((output / "db.json").read_bytes()))
+
+
+if __name__ == "__main__":
+    unittest.main()

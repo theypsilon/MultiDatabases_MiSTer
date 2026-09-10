@@ -46,6 +46,16 @@ LINUX_DESCRIPTION: Mapping[str, Any] = {
     # from the release date the same way.
     "version": LINUX_RELEASE[-6:],
 }
+# OPEN DECISION (2026-09-10, awaiting human review): upstream commented out
+# apply_linux_update in MiSTer-devel/Distribution_MiSTer@6916c7e6, so its
+# published document now carries no linux section at all and
+# read_upstream_database fails closed instead of guessing. Whether this entry
+# may keep injecting the pin above into a document that ships no linux section
+# is a human call, so nothing was relaxed here and the build stays red until it
+# is made. If the exception is accepted, record it as a reviewed constant, e.g.
+#     UPSTREAM_LINUX_SECTION_OPTIONAL = True
+# consulted only for a section that is missing, never for one whose shape
+# changed.
 SEVEN_ZIP_SIGNATURE = b"7z\xbc\xaf'\x1c"
 
 MAX_DATABASE_ARCHIVE_SIZE = 4_000_000
