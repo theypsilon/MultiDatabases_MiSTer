@@ -1887,10 +1887,6 @@ class NBloodGeneratorTests(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class StaleDistributionMisterGeneratorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -1946,16 +1942,44 @@ class StaleDistributionMisterGeneratorTests(unittest.TestCase):
             self.generator.read_upstream_database(self.upstream_archive()),
         )
 
-    def test_rejects_another_database_or_one_without_a_linux_section(self) -> None:
+    def test_rejects_another_database(self) -> None:
         database = self.upstream_database()
         database["db_id"] = "MultiDatabases/other"
         with self.assertRaisesRegex(RuntimeError, "Unexpected Distribution database ID"):
             self.generator.read_upstream_database(self.upstream_archive(database))
 
+    def test_accepts_an_upstream_document_without_a_linux_section(self) -> None:
+        # Reviewed exception: upstream stopped emitting the section this entry
+        # replaces, and the pin is published anyway.
+        self.assertTrue(self.generator.UPSTREAM_LINUX_SECTION_OPTIONAL)
         database = self.upstream_database()
         del database["linux"]
-        with self.assertRaisesRegex(RuntimeError, "no longer carries a linux section"):
-            self.generator.read_upstream_database(self.upstream_archive(database))
+        self.assertEqual(
+            database,
+            self.generator.read_upstream_database(self.upstream_archive(database)),
+        )
+
+    def test_rejects_a_linux_section_that_is_not_an_object(self) -> None:
+        # An omission is the reviewed case; any other shape is a change
+        # upstream made to the section itself and must come back for review.
+        for section in (None, [], "260907", 260907):
+            with self.subTest(section=section):
+                database = dict(self.upstream_database(), linux=section)
+                with self.assertRaisesRegex(
+                    RuntimeError, "linux section that is not an object"
+                ):
+                    self.generator.read_upstream_database(
+                        self.upstream_archive(database)
+                    )
+
+    def test_keeps_failing_closed_when_the_exception_is_withdrawn(self) -> None:
+        database = self.upstream_database()
+        del database["linux"]
+        with patch.object(self.generator, "UPSTREAM_LINUX_SECTION_OPTIONAL", False):
+            with self.assertRaisesRegex(
+                RuntimeError, "no longer carries a linux section"
+            ):
+                self.generator.read_upstream_database(self.upstream_archive(database))
 
     def test_replaces_only_the_linux_section(self) -> None:
         upstream = self.upstream_database()
@@ -1965,6 +1989,15 @@ class StaleDistributionMisterGeneratorTests(unittest.TestCase):
         expected["linux"] = self.PINNED_LINUX
         self.assertEqual(expected, database)
         self.assertEqual(self.upstream_database(), upstream)
+
+    def test_adds_the_linux_section_when_upstream_ships_none(self) -> None:
+        upstream = self.upstream_database()
+        del upstream["linux"]
+        database = self.generator.pin_linux(upstream)
+
+        expected = dict(upstream, linux=self.PINNED_LINUX)
+        self.assertEqual(expected, database)
+        self.assertNotIn("linux", upstream)
 
     def test_downloaded_linux_release_must_match_its_pin(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "not a 7z archive"):
@@ -1999,3 +2032,7 @@ class StaleDistributionMisterGeneratorTests(unittest.TestCase):
             changed = dict(database, tag_dictionary={"essential": 0, "nes": 1})
             self.assertTrue(self.generator.write_bundle(changed, output))
             self.assertEqual(changed, json.loads((output / "db.json").read_bytes()))
+
+
+if __name__ == "__main__":
+    unittest.main()
