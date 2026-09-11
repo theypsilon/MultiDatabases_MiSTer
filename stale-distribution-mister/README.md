@@ -36,6 +36,13 @@ that published it. The hash and size were computed from that exact URL when the
 pin was reviewed, and `generate_db.py --verify-linux-payload` re-downloads
 and re-checks it on demand.
 
+Since 2026-09-10 the official document ships no `linux` section at all, because
+upstream is reworking how it publishes multi-part Linux releases. This database
+adds the reviewed section in that case, so it keeps describing
+`release_20250402` while the official database describes no Linux update at
+all. If upstream's rework ends somewhere other than a top-level `linux`
+section, the pin above is reviewed again rather than left to drift.
+
 The Downloader only compares the version above with `/MiSTer.version`, so a
 MiSTer already on a newer Linux is moved back to `250402` on the next update,
 and a MiSTer on `250402` is left alone. Switching the URL below back to the

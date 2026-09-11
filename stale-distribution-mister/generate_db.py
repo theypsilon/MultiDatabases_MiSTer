@@ -46,16 +46,16 @@ LINUX_DESCRIPTION: Mapping[str, Any] = {
     # from the release date the same way.
     "version": LINUX_RELEASE[-6:],
 }
-# OPEN DECISION (2026-09-10, awaiting human review): upstream commented out
-# apply_linux_update in MiSTer-devel/Distribution_MiSTer@6916c7e6, so its
-# published document now carries no linux section at all and
-# read_upstream_database fails closed instead of guessing. Whether this entry
-# may keep injecting the pin above into a document that ships no linux section
-# is a human call, so nothing was relaxed here and the build stays red until it
-# is made. If the exception is accepted, record it as a reviewed constant, e.g.
-#     UPSTREAM_LINUX_SECTION_OPTIONAL = True
-# consulted only for a section that is missing, never for one whose shape
-# changed.
+# Reviewed 2026-09-11 (PR #8): upstream commented out apply_linux_update in
+# MiSTer-devel/Distribution_MiSTer@6916c7e6 while it reworks multi-part Linux
+# releases, so its published document carries no linux section at all. The
+# reviewed decision is that this entry still publishes the pin above in that
+# case: holding Linux on this release is the entry's whole purpose, and
+# upstream omitting the section says nothing about which image was reviewed
+# here. Consulted only when the key is absent. A linux section that is present
+# but is not an object is a shape change rather than an omission, so it keeps
+# failing closed and comes back for review.
+UPSTREAM_LINUX_SECTION_OPTIONAL = True
 SEVEN_ZIP_SIGNATURE = b"7z\xbc\xaf'\x1c"
 
 MAX_DATABASE_ARCHIVE_SIZE = 4_000_000
@@ -90,7 +90,12 @@ def read_upstream_database(archive_data: bytes) -> dict[str, Any]:
             "Unexpected Distribution database ID: "
             f"{database.get('db_id') or 'missing'}"
         )
-    if not isinstance(database.get("linux"), dict):
+    if "linux" in database:
+        if not isinstance(database["linux"], dict):
+            raise RuntimeError(
+                "Distribution database carries a linux section that is not an object"
+            )
+    elif not UPSTREAM_LINUX_SECTION_OPTIONAL:
         raise RuntimeError(
             "Distribution database no longer carries a linux section to pin"
         )
@@ -98,7 +103,11 @@ def read_upstream_database(archive_data: bytes) -> dict[str, Any]:
 
 
 def pin_linux(upstream: Mapping[str, Any]) -> dict[str, Any]:
-    """The official document with only its linux section replaced."""
+    """The official document with only its linux section set to the pin.
+
+    The section is added when upstream ships none, so this database describes
+    the reviewed release either way.
+    """
     database = dict(upstream)
     database["linux"] = dict(LINUX_DESCRIPTION)
     return database
