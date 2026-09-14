@@ -1893,14 +1893,13 @@ class StaleDistributionMisterGeneratorTests(unittest.TestCase):
         cls.generator = load_generator("stale-distribution-mister")
 
     PINNED_LINUX = {
-        "hash": "8dc3acae7d758a80a363fbd7ad31d95d",
-        "size": 93_727_644,
+        "hash": "7cec2206e2a1133aa307c541219aa08f",
+        "size": 126_546_478,
         "url": (
-            "https://raw.githubusercontent.com/MiSTer-devel/"
-            "SD-Installer-Win64_MiSTer/"
-            "b8531c7848526d9a8227841923cc4a493cb6e631/release_20250402.7z"
+            "https://github.com/MiSTer-devel/Distribution_MiSTer/releases/"
+            "download/all_releases/linux_release_20260912.7z"
         ),
-        "version": "250402",
+        "version": "260912",
     }
 
     def upstream_database(self) -> dict:
@@ -2001,12 +2000,12 @@ class StaleDistributionMisterGeneratorTests(unittest.TestCase):
 
     def test_downloaded_linux_release_must_match_its_pin(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "not a 7z archive"):
-            self.generator.validate_linux_payload(b"PK" + bytes(93_727_642))
+            self.generator.validate_linux_payload(b"PK")
         with self.assertRaisesRegex(RuntimeError, "wrong size"):
             self.generator.validate_linux_payload(b"7z\xbc\xaf'\x1c")
         with self.assertRaisesRegex(RuntimeError, "does not match its MD5"):
             self.generator.validate_linux_payload(
-                b"7z\xbc\xaf'\x1c" + bytes(93_727_644 - 6)
+                b"7z\xbc\xaf'\x1c" + bytes(self.PINNED_LINUX["size"] - 6)
             )
 
     def test_publishes_the_document_as_is_and_preserves_an_unchanged_bundle(self) -> None:

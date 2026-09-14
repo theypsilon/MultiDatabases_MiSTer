@@ -15,7 +15,6 @@ sys.path.insert(0, str(ROOT / ".github"))
 from db_helpers import (  # noqa: E402
     databases_have_same_content,
     generator_parser,
-    github_raw_url,
     http_get_bytes,
     md5,
     read_archive_members,
@@ -30,17 +29,18 @@ UPSTREAM_DATABASE_URL = (
     "https://raw.githubusercontent.com/MiSTer-devel/Distribution_MiSTer/main/db.json.zip"
 )
 
-# The Linux release this database stays on. Distribution keeps only its newest
-# Linux in the all_releases tag, so the SD-Installer repository, pinned to the
-# commit that published this release, is the immutable source. The hash and
-# size were computed from that exact URL when the pin was reviewed.
-LINUX_REPOSITORY = "MiSTer-devel/SD-Installer-Win64_MiSTer"
-LINUX_RELEASE = "release_20250402"
-LINUX_COMMIT = "b8531c7848526d9a8227841923cc4a493cb6e631"
-LINUX_URL = github_raw_url(LINUX_REPOSITORY, LINUX_COMMIT, f"{LINUX_RELEASE}.7z")
+# The reviewed Linux release this database stays on. Linux images are published
+# as versioned assets under Distribution's all_releases tag. The hash and size
+# were verified against this exact asset when the pin was reviewed.
+LINUX_REPOSITORY = "MiSTer-devel/Distribution_MiSTer"
+LINUX_RELEASE = "linux_release_20260912"
+LINUX_URL = (
+    f"https://github.com/{LINUX_REPOSITORY}/releases/download/all_releases/"
+    f"{LINUX_RELEASE}.7z"
+)
 LINUX_DESCRIPTION: Mapping[str, Any] = {
-    "hash": "8dc3acae7d758a80a363fbd7ad31d95d",
-    "size": 93_727_644,
+    "hash": "7cec2206e2a1133aa307c541219aa08f",
+    "size": 126_546_478,
     "url": LINUX_URL,
     # Downloader compares this with /MiSTer.version; Distribution derives it
     # from the release date the same way.
