@@ -3,6 +3,8 @@
 - Database ID:
   [`MultiDatabases/nblood`](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fnblood%2Fdb.json)
 - Upstream: [`meathax/blood`](https://github.com/meathax/blood)
+  (Downloader database); source at
+  [`meathax/blood`](https://github.com/meathax/blood)
 - Database URL:
   `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/nblood/db.json`
 

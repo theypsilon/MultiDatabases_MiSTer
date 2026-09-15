@@ -10,6 +10,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import urllib.parse
 import zipfile
 import zlib
 from pathlib import Path
@@ -1887,6 +1888,347 @@ class NBloodGeneratorTests(unittest.TestCase):
             "db/nblood/db.json",
             database["db_url"],
         )
+
+
+class DiabloGeneratorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("diablo")
+
+    REVISION = "a" * 40
+    OTHER_REVISION = "b" * 40
+    ARM_BINARY = (
+        b"\x7fELF\x01\x01\x01" + bytes(9) + b"\x02\x00\x28\x00" + bytes(600_000)
+    )
+    RETAIL_URL = "https://archive.org/download/diablohellfire/Diablo.iso/"
+    PAYLOADS = {
+        "Diablo": ARM_BINARY + b"frontend",
+        "_Other/Diablo.rbf": bytes(1_000_000),
+        "_Other/Hellfire.rbf": bytes(1_000_001),
+        "_Other/Diablo/Diablo.rbf": bytes(1_000_000),
+        "_Other/Diablo/devilutionx": ARM_BINARY + b"engine",
+        "_Other/Diablo/diablo_launcher.py": b"print('launch')\n",
+        "_Other/Diablo/Diablo.sh": b"#!/bin/sh\n",
+        "_Other/Diablo/assets/ASSETS_VERSION": b"1\n",
+        "_Other/Diablo/assets/lua/mods/Floating Numbers - XP/init.lua": b"-- x\n",
+        "_Other/Diablo/licenses/INDEX.md": b"# Licenses\n",
+        "games/Diablo/README_DATA.md": b"# Game data\n",
+        "games/Diablo/devilutionx.mpq": bytes(3_000),
+        "games/Diablo/spawn.mpq": bytes(4_000),
+    }
+    RETAIL = {
+        "games/Diablo/DIABDAT.MPQ": 517_501_282,
+        "games/Diablo/hellfire.mpq": 65_502_336,
+        "games/Diablo/hfmonk.mpq": 37_658_368,
+        "games/Diablo/hfmusic.mpq": 34_379_360,
+        "games/Diablo/hfvoice.mpq": 37_743_520,
+    }
+    FORWARDED = [
+        "_Other/Diablo.rbf",
+        "_Other/Diablo/Diablo.rbf",
+        "_Other/Diablo/Diablo.sh",
+        "_Other/Diablo/assets/ASSETS_VERSION",
+        "_Other/Diablo/assets/lua/mods/Floating Numbers - XP/init.lua",
+        "_Other/Diablo/devilutionx",
+        "_Other/Diablo/diablo_launcher.py",
+        "_Other/Diablo/licenses/INDEX.md",
+        "_Other/Hellfire.rbf",
+        "games/Diablo/README_DATA.md",
+        "games/Diablo/devilutionx.mpq",
+        "games/Diablo/spawn.mpq",
+    ]
+
+    def upstream_database(self):
+        files = {
+            path: {
+                "hash": hashlib.md5(data).hexdigest(),
+                "size": len(data),
+                "tags": [0],
+            }
+            for path, data in self.PAYLOADS.items()
+        }
+        for path, size in self.RETAIL.items():
+            files[path] = {
+                "hash": "0" * 32,
+                "size": size,
+                "url": self.RETAIL_URL + path.rsplit("/", 1)[1],
+                "overwrite": True,
+                "path": "pext",
+                "tags": [0],
+            }
+        return {
+            "v": 1,
+            "db_id": self.generator.UPSTREAM_DATABASE_ID,
+            "db_url": self.generator.UPSTREAM_DATABASE_URL,
+            "timestamp": 1_789_438_960,
+            "base_files_url": (
+                "https://raw.githubusercontent.com/meathax/dbdiablo/"
+                f"{self.REVISION}/"
+            ),
+            "files": files,
+            "folders": {"_Other": {"tags": [0]}, "games": {"path": "pext", "tags": [0]}},
+            "tag_dictionary": {"other": 0},
+        }
+
+    def upstream_archive(self) -> bytes:
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("db.json", json.dumps(self.upstream_database()))
+        return output.getvalue()
+
+    def test_reads_the_single_upstream_database_document(self) -> None:
+        self.assertEqual(
+            self.upstream_database(),
+            self.generator.read_upstream_database(self.upstream_archive()),
+        )
+
+    def test_rejects_a_foreign_upstream_database(self) -> None:
+        database = self.upstream_database()
+        database["db_id"] = "meathax/blood"
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("db.json", json.dumps(database))
+        with self.assertRaisesRegex(RuntimeError, "Unexpected Diablo upstream database ID"):
+            self.generator.read_upstream_database(output.getvalue())
+
+    def test_forwards_only_the_reviewed_scope_at_upstream_paths(self) -> None:
+        selected = self.generator.select_published_files(self.upstream_database())
+
+        self.assertEqual(self.FORWARDED, [item.path for item in selected])
+        for item in selected:
+            self.assertEqual(self.REVISION, item.revision)
+            self.assertEqual(
+                "https://raw.githubusercontent.com/meathax/dbdiablo/"
+                f"{self.REVISION}/{urllib.parse.quote(item.path)}",
+                item.url,
+            )
+            self.assertEqual(len(self.PAYLOADS[item.path]), item.size)
+
+    def test_never_forwards_files_outside_the_scope(self) -> None:
+        database = self.upstream_database()
+        outside = {
+            "Scripts/diablo.sh": b"#!/bin/sh\n",
+            "_Other/Other.rbf": bytes(1_000_000),
+            "_Other/DiabloTools/x.txt": b"x",
+            "_OtherDiablo/x.txt": b"x",
+            "_other/diablo/x.txt": b"x",
+            "games/DiabloX/x.mpq": b"x",
+            "games/diablo/x.mpq": b"x",
+            "MiSTer": b"x",
+            "../_Other/Diablo/x.txt": b"x",
+        }
+        for path, data in outside.items():
+            database["files"][path] = {
+                "hash": hashlib.md5(data).hexdigest(),
+                "size": len(data),
+            }
+
+        selected = self.generator.select_published_files(database)
+
+        self.assertEqual(self.FORWARDED, [item.path for item in selected])
+
+    def test_never_forwards_the_retail_archives(self) -> None:
+        database = self.upstream_database()
+        for path in self.RETAIL:
+            # Even when upstream serves them from its own pinned commit.
+            del database["files"][path]["url"]
+
+        selected = self.generator.select_published_files(database)
+
+        self.assertEqual(self.FORWARDED, [item.path for item in selected])
+
+    def test_rejects_forwarded_files_served_from_elsewhere(self) -> None:
+        database = self.upstream_database()
+        database["files"]["games/Diablo/spawn.mpq"]["url"] = (
+            self.RETAIL_URL + "spawn.mpq"
+        )
+        with self.assertRaisesRegex(
+            RuntimeError, "concrete GitHub release or commit"
+        ):
+            self.generator.select_published_files(database)
+
+        database = self.upstream_database()
+        database["files"]["games/Diablo/spawn.mpq"]["url"] = (
+            "https://raw.githubusercontent.com/meathax/blood/"
+            f"{self.REVISION}/games/Diablo/spawn.mpq"
+        )
+        with self.assertRaisesRegex(RuntimeError, "must use its immutable"):
+            self.generator.select_published_files(database)
+
+        database = self.upstream_database()
+        database["files"]["_Other/Diablo.rbf"]["url"] = (
+            "https://raw.githubusercontent.com/meathax/dbdiablo/"
+            f"{self.REVISION}/_Other/Diablo/Diablo.rbf"
+        )
+        with self.assertRaisesRegex(RuntimeError, "must use its immutable"):
+            self.generator.select_published_files(database)
+
+    def test_requires_immutable_payload_urls_from_one_source_commit(self) -> None:
+        database = self.upstream_database()
+        database["base_files_url"] = (
+            "https://raw.githubusercontent.com/meathax/dbdiablo/main/"
+        )
+        with self.assertRaisesRegex(RuntimeError, "full commit SHA"):
+            self.generator.select_published_files(database)
+
+        database = self.upstream_database()
+        database["files"]["_Other/Diablo/devilutionx"]["url"] = (
+            "https://raw.githubusercontent.com/meathax/dbdiablo/"
+            f"{self.OTHER_REVISION}/_Other/Diablo/devilutionx"
+        )
+        with self.assertRaisesRegex(RuntimeError, "must all come from one commit"):
+            self.generator.select_published_files(database)
+
+    def test_rejects_unsafe_paths_inside_the_scope(self) -> None:
+        for path in (
+            "_Other/Diablo/../../MiSTer",
+            "_Other/Diablo//x",
+            "games/Diablo/..",
+        ):
+            with self.subTest(path=path):
+                database = self.upstream_database()
+                database["files"][path] = {"hash": "0" * 32, "size": 1}
+                with self.assertRaisesRegex(RuntimeError, "Invalid install path"):
+                    self.generator.select_published_files(database)
+
+    def test_rejects_a_missing_required_file(self) -> None:
+        for path in sorted(self.generator.REQUIRED_FILES):
+            with self.subTest(path=path):
+                database = self.upstream_database()
+                del database["files"][path]
+                with self.assertRaisesRegex(
+                    RuntimeError, f"missing required files: {path}"
+                ):
+                    self.generator.select_published_files(database)
+
+    def test_forwards_whatever_upstream_puts_inside_the_folders(self) -> None:
+        database = self.upstream_database()
+        for path in list(database["files"]):
+            if path.startswith(("_Other/Diablo/", "games/Diablo/")):
+                del database["files"][path]
+        database["files"]["_Other/Diablo/renamed/engine"] = {
+            "hash": "1" * 32,
+            "size": 7_000_000,
+        }
+        database["files"]["games/Diablo/new-language.mpq"] = {
+            "hash": "2" * 32,
+            "size": 0,
+        }
+
+        selected = self.generator.select_published_files(database)
+
+        self.assertEqual(
+            [
+                "_Other/Diablo.rbf",
+                "_Other/Diablo/renamed/engine",
+                "_Other/Hellfire.rbf",
+                "games/Diablo/new-language.mpq",
+            ],
+            [item.path for item in selected],
+        )
+
+    def test_rejects_malformed_upstream_metadata(self) -> None:
+        database = self.upstream_database()
+        database["files"]["games/Diablo/spawn.mpq"]["hash"] = "ABC"
+        with self.assertRaisesRegex(RuntimeError, "spawn.mpq needs a lowercase MD5"):
+            self.generator.select_published_files(database)
+
+        database = self.upstream_database()
+        database["files"]["games/Diablo/spawn.mpq"]["size"] = -1
+        with self.assertRaisesRegex(RuntimeError, "spawn.mpq needs a non-negative"):
+            self.generator.select_published_files(database)
+
+    def test_downloaded_files_must_match_upstream_metadata(self) -> None:
+        selected = self.generator.select_published_files(self.upstream_database())
+        for item in selected:
+            self.generator.validate_published_file(item, self.PAYLOADS[item.path])
+        by_path = {item.path: item for item in selected}
+
+        engine = by_path["_Other/Diablo/devilutionx"]
+        with self.assertRaisesRegex(RuntimeError, "does not match its MD5"):
+            self.generator.validate_published_file(
+                engine, self.PAYLOADS[engine.path][:-1] + b"x"
+            )
+
+        core = by_path["_Other/Diablo.rbf"]
+        with self.assertRaisesRegex(RuntimeError, "wrong size"):
+            self.generator.validate_published_file(
+                core, self.PAYLOADS[core.path][:-1]
+            )
+
+    def test_publishes_the_forwarded_slice_under_a_compressed_url(self) -> None:
+        upstream = self.upstream_database()
+        downloads = {
+            upstream["base_files_url"] + urllib.parse.quote(path): data
+            for path, data in self.PAYLOADS.items()
+        }
+        downloads[self.generator.UPSTREAM_DATABASE_URL] = self.upstream_archive()
+
+        # Tag discovery uses an external module; keep this output test offline.
+        def apply_tags(database, **kwargs):
+            database["tag_dictionary"] = {"diablo": 0}
+            for descriptions in (database["files"], database["folders"]):
+                for description in descriptions.values():
+                    description["tags"] = [0]
+
+        requested: list[str] = []
+
+        def download(url: str) -> bytes:
+            requested.append(url)
+            return downloads[url]
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "diablo"
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "generate_db.py",
+                        "--output", str(output),
+                        "--repository", "theypsilon/MultiDatabases_MiSTer",
+                        "--timestamp", "1",
+                    ],
+                ),
+                patch.object(self.generator, "http_get_bytes", side_effect=download),
+                patch("db_helpers.apply_standard_tags", side_effect=apply_tags),
+            ):
+                self.assertEqual(0, self.generator.main())
+
+            database = json.loads((output / "db.json").read_bytes())
+
+        self.assertEqual("MultiDatabases/diablo", database["db_id"])
+        self.assertEqual(
+            "https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/"
+            "db/diablo/db.json.zip",
+            database["db_url"],
+        )
+        self.assertEqual(self.FORWARDED, sorted(database["files"]))
+        self.assertEqual(
+            [
+                "_Other",
+                "_Other/Diablo",
+                "_Other/Diablo/assets",
+                "_Other/Diablo/assets/lua",
+                "_Other/Diablo/assets/lua/mods",
+                "_Other/Diablo/assets/lua/mods/Floating Numbers - XP",
+                "_Other/Diablo/licenses",
+                "games",
+                "games/Diablo",
+            ],
+            sorted(database["folders"]),
+        )
+        self.assertFalse(any("archive.org" in url for url in requested))
+        self.assertFalse(
+            any(url.endswith("/Diablo") for url in requested),
+            "the root Diablo frontend must not be downloaded",
+        )
+        for path, description in database["files"].items():
+            self.assertEqual(
+                f"{upstream['base_files_url']}{urllib.parse.quote(path)}",
+                description["url"],
+            )
+            self.assertEqual(hashlib.md5(self.PAYLOADS[path]).hexdigest(), description["hash"])
+            self.assertNotIn("path", description)
 
 
 class DistributionMisterPinnedLinuxGeneratorTests(unittest.TestCase):
