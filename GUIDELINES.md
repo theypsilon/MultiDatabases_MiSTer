@@ -22,6 +22,11 @@
   the entry is expected to produce, never from a measurement taken during a
   run: the workflow must not move an entry between the two URLs, and neither an
   incremental change nor an entry later growing past 10 KB reopens the choice.
+- Renaming an entry does not retire its `db_url` either. The generator keeps
+  writing its previous `dist/<old-slug>` folder as a byte-for-byte copy of its
+  bundle, also when the run fails, and the entry README lists the old URL as
+  still published; see `distribution-mister-pinned-linux`. A retired name can
+  never be reused for another entry.
 - Prefer the latest published release/version, but validate its expected files
   and layout before accepting it. Install only files intended for MiSTer.
 - Prefer a loud failure over silently freezing on a stale version. Skipping an

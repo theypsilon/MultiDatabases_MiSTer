@@ -6,6 +6,8 @@ import hashlib
 import importlib.util
 import io
 import json
+import shutil
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -1887,10 +1889,10 @@ class NBloodGeneratorTests(unittest.TestCase):
         )
 
 
-class StaleDistributionMisterGeneratorTests(unittest.TestCase):
+class DistributionMisterPinnedLinuxGeneratorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.generator = load_generator("stale-distribution-mister")
+        cls.generator = load_generator("distribution-mister-pinned-linux")
 
     PINNED_LINUX = {
         "hash": "7cec2206e2a1133aa307c541219aa08f",
@@ -2011,7 +2013,7 @@ class StaleDistributionMisterGeneratorTests(unittest.TestCase):
     def test_publishes_the_document_as_is_and_preserves_an_unchanged_bundle(self) -> None:
         database = self.generator.pin_linux(self.upstream_database())
         with tempfile.TemporaryDirectory() as temporary_directory:
-            output = Path(temporary_directory) / "stale-distribution-mister"
+            output = Path(temporary_directory) / "distribution-mister-pinned-linux"
             self.assertTrue(self.generator.write_bundle(database, output))
             self.assertEqual(
                 ["db.json", "db.json.zip"],
@@ -2031,6 +2033,47 @@ class StaleDistributionMisterGeneratorTests(unittest.TestCase):
             changed = dict(database, tag_dictionary={"essential": 0, "nes": 1})
             self.assertTrue(self.generator.write_bundle(changed, output))
             self.assertEqual(changed, json.loads((output / "db.json").read_bytes()))
+
+    def bundle_files(self, bundle: Path) -> dict[str, bytes]:
+        return {path.name: path.read_bytes() for path in bundle.iterdir()}
+
+    def test_serves_its_previous_folder_as_a_copy_of_the_bundle(self) -> None:
+        database = self.generator.pin_linux(self.upstream_database())
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "distribution-mister-pinned-linux"
+            mirror = Path(temporary_directory) / self.generator.LEGACY_FOLDER
+            mirror.mkdir()
+            (mirror / "stale.txt").write_text("", encoding="utf-8")
+            self.generator.write_bundle(database, output)
+
+            self.generator.mirror_bundle(output, mirror)
+            self.assertEqual(self.bundle_files(output), self.bundle_files(mirror))
+
+            # Nothing to publish, nothing to mirror.
+            shutil.rmtree(output)
+            self.generator.mirror_bundle(output, mirror)
+            self.assertFalse(mirror.exists())
+
+    def test_a_failed_run_keeps_serving_the_previous_folder(self) -> None:
+        # generate_all.py keeps the previously published bundle when the
+        # generator fails, and the previous folder must keep matching it.
+        database = self.generator.pin_linux(self.upstream_database())
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "distribution-mister-pinned-linux"
+            mirror = Path(temporary_directory) / self.generator.LEGACY_FOLDER
+            self.generator.write_bundle(database, output)
+            argv = ["generate_db.py", "--output", str(output)]
+
+            with patch.object(sys, "argv", argv):
+                with patch.object(
+                    self.generator,
+                    "http_get_bytes",
+                    side_effect=RuntimeError("upstream unreachable"),
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "upstream unreachable"):
+                        self.generator.main()
+
+            self.assertEqual(self.bundle_files(output), self.bundle_files(mirror))
 
 
 if __name__ == "__main__":

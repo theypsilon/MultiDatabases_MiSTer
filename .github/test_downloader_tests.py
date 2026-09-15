@@ -61,8 +61,8 @@ class RunDownloaderTestsTests(unittest.TestCase):
             tester = root / ".github" / "downloader_test.py"
             tester.parent.mkdir()
             tester.touch()
-            (root / "stale-distribution-mister").mkdir()
-            database = output / "stale-distribution-mister" / "db.json"
+            (root / "distribution-mister-pinned-linux").mkdir()
+            database = output / "distribution-mister-pinned-linux" / "db.json"
             database.parent.mkdir(parents=True)
             database.write_text(
                 json.dumps({"db_id": "distribution_mister"}), encoding="utf-8"
@@ -76,7 +76,7 @@ class RunDownloaderTestsTests(unittest.TestCase):
                     tester_call(
                         tester,
                         output,
-                        "stale-distribution-mister",
+                        "distribution-mister-pinned-linux",
                         db_id="distribution_mister",
                     )
                 ],

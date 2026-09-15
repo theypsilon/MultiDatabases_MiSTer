@@ -21,7 +21,10 @@ from db_helpers import (  # noqa: E402
 )
 
 
-FOLDER = "stale-distribution-mister"
+FOLDER = "distribution-mister-pinned-linux"
+# The folder this entry was first published under. A published db_url must
+# never change, so that path keeps serving a copy of this bundle.
+LEGACY_FOLDER = "stale-distribution-mister"
 DATABASE_ID = "distribution_mister"
 # A moving URL, used for discovery only: the document it serves is republished
 # as is, and the payload URLs inside it are upstream's own pinned ones.
@@ -162,9 +165,23 @@ def write_bundle(database: dict[str, Any], output: Path) -> bool:
     return True
 
 
+def mirror_bundle(output: Path, mirror: Path) -> None:
+    """Serve the previous db_url as a byte-for-byte copy of the bundle.
+
+    Called whether or not this run produced a new bundle, so the copy follows
+    whatever `output` holds: the new bundle, or the previously published one
+    that generate_all.py keeps when this generator fails.
+    """
+    if mirror.exists():
+        shutil.rmtree(mirror) if mirror.is_dir() else mirror.unlink()
+    if output.is_dir():
+        shutil.copytree(output, mirror)
+        print(f"Mirrored {output.name} as {mirror.name}", flush=True)
+
+
 def main() -> int:
     parser = generator_parser(
-        FOLDER, "Generate the stale Distribution MiSTer database"
+        FOLDER, "Generate the Distribution MiSTer database with pinned Linux"
     )
     parser.add_argument(
         "--verify-linux-payload",
@@ -176,8 +193,11 @@ def main() -> int:
     if args.verify_linux_payload:
         validate_linux_payload(http_get_bytes(LINUX_URL))
 
-    upstream = read_upstream_database(http_get_bytes(UPSTREAM_DATABASE_URL))
-    write_bundle(pin_linux(upstream), args.output)
+    try:
+        upstream = read_upstream_database(http_get_bytes(UPSTREAM_DATABASE_URL))
+        write_bundle(pin_linux(upstream), args.output)
+    finally:
+        mirror_bundle(args.output, args.output.parent / LEGACY_FOLDER)
     return 0
 
 

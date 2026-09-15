@@ -1,10 +1,12 @@
-# Stale Distribution MiSTer database
+# Distribution MiSTer Pinned Linux database
 
 - Database ID:
-  [`distribution_mister`](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fstale-distribution-mister%2Fdb.json.zip)
+  [`distribution_mister`](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fdistribution-mister-pinned-linux%2Fdb.json.zip)
 - Upstream:
   [`MiSTer-devel/Distribution_MiSTer`](https://github.com/MiSTer-devel/Distribution_MiSTer)
 - Database URL:
+  `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/distribution-mister-pinned-linux/db.json.zip`
+- Previous database URL, still published as an identical copy:
   `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/stale-distribution-mister/db.json.zip`
 
 This database is a clone of the official MiSTer distribution with one
@@ -37,8 +39,8 @@ it on demand.
 Since 2026-09-10 the official document ships no `linux` section at all, because
 upstream is reworking how it publishes multi-part Linux releases. This database
 adds the reviewed section in that case, so it keeps describing
-`release_20250402` while the official database describes no Linux update at
-all. If upstream's rework ends somewhere other than a top-level `linux`
+`linux_release_20260912` while the official database describes no Linux update
+at all. If upstream's rework ends somewhere other than a top-level `linux`
 section, the pin above is reviewed again rather than left to drift.
 
 The Downloader only compares the version above with `/MiSTer.version`, so a
@@ -55,7 +57,12 @@ If the section doesn’t exist, add both lines:
 
 ```ini
 [distribution_mister]
-db_url = https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/stale-distribution-mister/db.json.zip
+db_url = https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/distribution-mister-pinned-linux/db.json.zip
 ```
 
 Then run the update_all as usual.
+
+This database was first published as `stale-distribution-mister`. A
+`downloader.ini` that still points at that URL keeps working: the generator
+writes a byte-for-byte copy of this bundle to the old path on every build, so
+there is no need to edit it.

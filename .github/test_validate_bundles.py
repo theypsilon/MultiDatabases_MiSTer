@@ -62,8 +62,8 @@ class ValidateBundlesTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            (root / "stale-distribution-mister").mkdir()
-            bundle = root / "dist" / "stale-distribution-mister"
+            (root / "distribution-mister-pinned-linux").mkdir()
+            bundle = root / "dist" / "distribution-mister-pinned-linux"
             bundle.mkdir(parents=True)
             encoded = json.dumps(document).encode("utf-8")
             (bundle / "db.json").write_bytes(encoded)

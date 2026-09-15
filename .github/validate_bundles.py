@@ -16,7 +16,7 @@ from generate_all import ROOT, discover_folders
 # Entries that republish the official distribution under Downloader's reserved
 # ID. Their document is upstream's, not this repository's layout, so the shared
 # validation does not apply, and Downloader refuses a drop-in for that section.
-DISTRIBUTION_CLONES = {"stale-distribution-mister": "distribution_mister"}
+DISTRIBUTION_CLONES = {"distribution-mister-pinned-linux": "distribution_mister"}
 
 
 def main() -> int:
