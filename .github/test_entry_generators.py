@@ -2418,5 +2418,320 @@ class DistributionMisterPinnedLinuxGeneratorTests(unittest.TestCase):
             self.assertEqual(self.bundle_files(output), self.bundle_files(mirror))
 
 
+class ShmupDeckGeneratorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("shmup-deck")
+
+    VERSION = "1.4.3"
+    SERVICE = b'#!/usr/bin/env python3\nimport os\n\nVERSION = "1.4.3"\n'
+    APP_FOLDER = "Scripts/.config/shmup_deck"
+    RELEASE_FILES = (
+        "shmup_deck/app/art.json",
+        "shmup_deck/app/cores.json",
+        "shmup_deck/app/games.json",
+        "shmup_deck/app/icons/icon-192.png",
+        "shmup_deck/app/index.html",
+        "shmup_deck/shmup_deck.py",
+    )
+    LAUNCHER_URL = (
+        "https://github.com/searchsolved/shmup-deck/releases/download/v1.4.3/"
+        "shmup_deck.sh"
+    )
+    ARCHIVE_URL = (
+        "https://github.com/searchsolved/shmup-deck/releases/download/v1.4.3/"
+        "shmup_deck.zip"
+    )
+
+    def member(self, path: str, data: bytes = b"data"):
+        return self.generator.ArchiveMember(archive_path=path, path=path, data=data)
+
+    def release_members(self, *extra, exclude: str = ""):
+        return [
+            self.member(path, self.SERVICE if path.endswith(".py") else b"data")
+            for path in self.RELEASE_FILES
+            if path != exclude
+        ] + list(extra)
+
+    def launcher(
+        self,
+        *,
+        repo: str = "searchsolved/shmup-deck",
+        home: str = "/media/fat/Scripts/.config/shmup_deck",
+        startup: str = "/media/fat/linux/user-startup.sh",
+        mark: str = "# shmup_deck",
+        uninstall: bool = True,
+    ) -> bytes:
+        # The shape of upstream's launcher: the reviewed constants, the
+        # uninstall branch, the marked boot entry and the service start.
+        removal = (
+            '  [ -f "$STARTUP" ] && sed -i "/$MARK/d" "$STARTUP"\n' if uninstall else ""
+        )
+        return (
+            "#!/bin/bash\n"
+            f'REPO="{repo}"\n'
+            "PORT=8190\n"
+            f"HOME_DIR={home}\n"
+            "PID_FILE=/tmp/shmup_deck.pid\n"
+            "LOG=/tmp/shmup_deck.log\n"
+            f"STARTUP={startup}\n"
+            f'MARK="{mark}"\n'
+            "start_service() {\n"
+            '  cd "$HOME_DIR" || exit 1\n'
+            '  nohup python3 "$HOME_DIR/shmup_deck.py" --port "$PORT" >"$LOG" 2>&1 &\n'
+            "}\n"
+            'if [ "$1" = "uninstall" ]; then\n'
+            f"{removal}"
+            "  exit 0\n"
+            "fi\n"
+            'if ! grep -q "$MARK" "$STARTUP"; then\n'
+            '  echo "[ -f $HOME_DIR/shmup_deck.py ] && (cd $HOME_DIR && nohup '
+            'python3 shmup_deck.py --port $PORT >$LOG 2>&1 &) $MARK" >>"$STARTUP"\n'
+            "fi\n"
+            "start_service\n"
+        ).encode()
+
+    def test_installs_the_zip_under_the_app_folder(self) -> None:
+        selected = self.generator.selected_files(
+            list(reversed(self.release_members())), version=self.VERSION
+        )
+
+        self.assertEqual(
+            [
+                f"{self.APP_FOLDER}/app/art.json",
+                f"{self.APP_FOLDER}/app/cores.json",
+                f"{self.APP_FOLDER}/app/games.json",
+                f"{self.APP_FOLDER}/app/icons/icon-192.png",
+                f"{self.APP_FOLDER}/app/index.html",
+                f"{self.APP_FOLDER}/shmup_deck.py",
+            ],
+            [destination for destination, _ in selected],
+        )
+        self.assertEqual(
+            "shmup_deck/shmup_deck.py",
+            dict(selected)[f"{self.APP_FOLDER}/shmup_deck.py"].archive_path,
+        )
+
+    def test_strips_the_wrapping_folder_only_when_present(self) -> None:
+        # The launcher installs the ZIP the same way: members outside the
+        # shmup_deck/ folder land at their own path.
+        members = [
+            self.member(path.removeprefix("shmup_deck/"), self.SERVICE if path.endswith(".py") else b"data")
+            for path in self.RELEASE_FILES
+        ]
+        selected = self.generator.selected_files(members, version=self.VERSION)
+
+        self.assertEqual(
+            sorted(f"{self.APP_FOLDER}/{path.removeprefix('shmup_deck/')}" for path in self.RELEASE_FILES),
+            [destination for destination, _ in selected],
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "same file"):
+            self.generator.selected_files(
+                self.release_members(self.member("app/index.html")),
+                version=self.VERSION,
+            )
+
+    def test_rejects_files_outside_the_service_and_its_app(self) -> None:
+        for path in ("shmup_deck/README.md", "shmup_deck/tools/build_rom_list.py", "LICENSE"):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(RuntimeError, "outside"):
+                    self.generator.selected_files(
+                        self.release_members(self.member(path)), version=self.VERSION
+                    )
+
+    def test_rejects_packaged_user_files(self) -> None:
+        self.assertEqual(
+            (
+                "VERSION",
+                "art/",
+                "favourites.json",
+                "mra_index.json",
+                "mra_index_seen.json",
+                "plays.json",
+            ),
+            self.generator.USER_OWNED,
+        )
+        for path in (
+            "VERSION",
+            "art/gunbird.img",
+            "favourites.json",
+            "mra_index.json",
+            "mra_index_seen.json",
+            "plays.json",
+        ):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(RuntimeError, "belong to the user"):
+                    self.generator.selected_files(
+                        self.release_members(self.member(f"shmup_deck/{path}")),
+                        version=self.VERSION,
+                    )
+
+    def test_rejects_a_release_missing_required_files(self) -> None:
+        for path in ("shmup_deck/shmup_deck.py", "shmup_deck/app/games.json"):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(RuntimeError, "missing required files"):
+                    self.generator.selected_files(
+                        self.release_members(exclude=path), version=self.VERSION
+                    )
+
+    def test_rejects_binaries(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "ships binaries"):
+            self.generator.selected_files(
+                self.release_members(
+                    self.member("shmup_deck/app/helper", b"\x7fELF" + bytes(64))
+                ),
+                version=self.VERSION,
+            )
+
+    def test_rejects_a_service_whose_version_differs_from_the_tag(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "declares version 1.4.3, but .* v1.5.0"):
+            self.generator.selected_files(self.release_members(), version="1.5.0")
+
+        members = self.release_members(exclude="shmup_deck/shmup_deck.py")
+        members.append(self.member("shmup_deck/shmup_deck.py", b"print('x')\n"))
+        with self.assertRaisesRegex(RuntimeError, "no VERSION constant"):
+            self.generator.selected_files(members, version=self.VERSION)
+
+    def test_release_tags_must_be_semantic_versions(self) -> None:
+        self.assertEqual("1.4.3", self.generator.release_version({"tag_name": "v1.4.3"}))
+        for tag in ("1.4.3", "v1.4", "release-1.4.3"):
+            with self.subTest(tag=tag):
+                with self.assertRaisesRegex(RuntimeError, "not vX.Y.Z"):
+                    self.generator.release_version({"tag_name": tag})
+
+    def test_accepts_the_reviewed_launcher(self) -> None:
+        self.generator.validate_launcher(self.launcher())
+
+    def test_rejects_a_launcher_that_moves_or_renames_the_boot_entry(self) -> None:
+        cases = {
+            "repo": dict(repo="someone/shmup-deck"),
+            "home": dict(home="/media/fat/Scripts/.config/shmupdeck"),
+            "startup": dict(startup="/media/fat/linux/user-startup-custom.sh"),
+            "mark": dict(mark="# shmupdeck"),
+        }
+        for name, overrides in cases.items():
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(RuntimeError, "launcher must set"):
+                    self.generator.validate_launcher(self.launcher(**overrides))
+
+    def test_rejects_a_launcher_that_cannot_uninstall_its_boot_entry(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "on uninstall"):
+            self.generator.validate_launcher(self.launcher(uninstall=False))
+
+    def test_rejects_a_launcher_that_is_not_a_script(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "not a script"):
+            self.generator.validate_launcher(b"REPO=searchsolved/shmup-deck\n")
+
+    def archive(self) -> bytes:
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("shmup_deck/", "")
+            for member in self.release_members():
+                archive.writestr(member.path, member.data)
+        return output.getvalue()
+
+    def test_generates_the_database_from_the_release_assets(self) -> None:
+        release = {
+            "tag_name": "v1.4.3",
+            "assets": [
+                {"name": "shmup_deck.sh", "browser_download_url": self.LAUNCHER_URL},
+                {"name": "shmup_deck.zip", "browser_download_url": self.ARCHIVE_URL},
+            ],
+        }
+        launcher = self.launcher()
+        downloads = {self.LAUNCHER_URL: launcher, self.ARCHIVE_URL: self.archive()}
+
+        def apply_tags(database, **_kwargs):
+            database["tag_dictionary"] = {"shmupdeck": 0}
+            for descriptions in (database["files"], database["folders"]):
+                for description in descriptions.values():
+                    description["tags"] = [0]
+            for archive in database["archives"].values():
+                for key in ("files", "folders"):
+                    for description in archive["summary_inline"][key].values():
+                        description["tags"] = [0]
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "shmup-deck"
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "generate_db.py",
+                        "--output", str(output),
+                        "--repository", "theypsilon/MultiDatabases_MiSTer",
+                        "--timestamp", "1",
+                    ],
+                ),
+                patch.object(
+                    self.generator, "github_latest_release", return_value=release
+                ),
+                patch.object(
+                    self.generator, "http_get_bytes", side_effect=downloads.__getitem__
+                ),
+                patch("db_helpers.apply_standard_tags", side_effect=apply_tags),
+            ):
+                self.assertEqual(0, self.generator.main())
+
+            database = json.loads((output / "db.json").read_bytes())
+
+        self.assertEqual("MultiDatabases/shmup-deck", database["db_id"])
+        self.assertEqual(
+            "https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/"
+            "db/shmup-deck/db.json",
+            database["db_url"],
+        )
+        self.assertEqual(["Scripts/shmup_deck.sh"], list(database["files"]))
+        self.assertEqual(self.LAUNCHER_URL, database["files"]["Scripts/shmup_deck.sh"]["url"])
+        self.assertEqual(
+            hashlib.md5(launcher).hexdigest(),
+            database["files"]["Scripts/shmup_deck.sh"]["hash"],
+        )
+
+        archive = database["archives"]["release"]
+        self.assertEqual(self.ARCHIVE_URL, archive["archive_file"]["url"])
+        self.assertEqual("Installing Shmup Deck v1.4.3", archive["description"])
+        files = archive["summary_inline"]["files"]
+        self.assertEqual(
+            [
+                f"{self.APP_FOLDER}/app/art.json",
+                f"{self.APP_FOLDER}/app/cores.json",
+                f"{self.APP_FOLDER}/app/games.json",
+                f"{self.APP_FOLDER}/app/icons/icon-192.png",
+                f"{self.APP_FOLDER}/app/index.html",
+                f"{self.APP_FOLDER}/shmup_deck.py",
+            ],
+            list(files),
+        )
+        self.assertTrue(files[f"{self.APP_FOLDER}/shmup_deck.py"]["reboot"])
+        self.assertNotIn("reboot", files[f"{self.APP_FOLDER}/app/index.html"])
+        self.assertEqual(
+            [
+                "Scripts",
+                "Scripts/.config",
+                self.APP_FOLDER,
+                f"{self.APP_FOLDER}/app",
+                f"{self.APP_FOLDER}/app/icons",
+            ],
+            list(archive["summary_inline"]["folders"]),
+        )
+
+    def test_a_release_without_both_assets_fails(self) -> None:
+        release = {
+            "tag_name": "v1.4.3",
+            "assets": [
+                {"name": "shmup_deck.zip", "browser_download_url": self.ARCHIVE_URL},
+            ],
+        }
+        with (
+            patch("sys.argv", ["generate_db.py"]),
+            patch.object(self.generator, "github_latest_release", return_value=release),
+            patch.object(self.generator, "http_get_bytes", side_effect=AssertionError),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "No matching release asset"):
+                self.generator.main()
+
+
 if __name__ == "__main__":
     unittest.main()
