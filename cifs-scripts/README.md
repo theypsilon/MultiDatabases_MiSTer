@@ -14,6 +14,14 @@ from the newest upstream commit that changed it, so the database only updates
 when one of the two scripts does. These are ARM shell scripts; no core is
 installed.
 
+Both scripts are overwrite protected (`"overwrite": false`), because each one
+has an options block that users edit by hand. The Downloader installs a script
+only when it is missing, and never replaces one that is already on the SD card,
+whether or not it was edited. When upstream publishes a new version, the
+Downloader lists the script under `Following new versions were not installed`;
+delete that script and run the updaters again to get the new version. Settings
+kept in `cifs_mount.ini` survive that, settings edited inside the script do not.
+
 ## Installation
 
 Download
@@ -26,10 +34,8 @@ No `MiSTer.ini` changes and no BIOS or game files are required.
 
 ### Configure the share
 
-Create `/media/fat/Scripts/cifs_mount.ini` next to the scripts. Keep your
-settings there rather than editing `cifs_mount.sh`: the database overwrites the
-scripts on update and never touches the INI file. It takes one `KEY="value"`
-per line, and only `SERVER` is mandatory:
+Create `/media/fat/Scripts/cifs_mount.ini` next to the scripts. It takes one
+`KEY="value"` per line, and only `SERVER` is mandatory:
 
 ```ini
 SERVER="192.168.1.10"

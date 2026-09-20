@@ -82,6 +82,7 @@ class DirectFile:
     data: bytes
     reboot: bool = False
     tangles: tuple[str, ...] = ()
+    overwrite: bool = True
 
 
 @dataclass(frozen=True)
@@ -660,7 +661,7 @@ def build_multi_selective_archive_database(
             "hash": md5(item.data),
             "size": len(item.data),
             "url": item.url,
-            "overwrite": True,
+            "overwrite": item.overwrite,
         }
         if item.reboot:
             description["reboot"] = True
@@ -787,7 +788,7 @@ def build_direct_database(
             "hash": md5(item.data),
             "size": len(item.data),
             "url": item.url,
-            "overwrite": True,
+            "overwrite": item.overwrite,
         }
         if item.reboot:
             description["reboot"] = True

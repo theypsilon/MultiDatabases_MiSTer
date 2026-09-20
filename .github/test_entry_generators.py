@@ -2880,6 +2880,26 @@ class CifsScriptsGeneratorTests(unittest.TestCase):
             [(item.path, item.url) for item in files],
         )
 
+    def test_never_overwrites_an_installed_script(self) -> None:
+        # Both scripts carry an options block that users edit by hand, and the
+        # unmount one has to keep matching the mount one.
+        with (
+            patch.object(
+                self.generator,
+                "github_json",
+                return_value=[{"sha": self.MOUNT_SHA}],
+            ),
+            patch.object(
+                self.generator, "http_get_bytes", return_value=b"#!/bin/bash\n"
+            ),
+        ):
+            files = [
+                self.generator.script_file(script)
+                for script in self.generator.SCRIPTS
+            ]
+
+        self.assertEqual([False, False], [item.overwrite for item in files])
+
     def test_fails_when_a_script_vanishes_upstream(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "removed or renamed"):
             self.generator.latest_commit_sha([], "cifs_mount.sh")

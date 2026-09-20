@@ -60,7 +60,11 @@ def script_file(script: str) -> DirectFile:
     url = github_raw_url(UPSTREAM, latest_commit_sha(commits, script), script)
     data = http_get_bytes(url)
     validate_script(script, data)
-    return DirectFile(path=f"Scripts/{script}", url=url, data=data)
+    # Users keep their share settings in the options block inside each script,
+    # so the Downloader must never replace a script that is already installed.
+    return DirectFile(
+        path=f"Scripts/{script}", url=url, data=data, overwrite=False
+    )
 
 
 def main() -> int:

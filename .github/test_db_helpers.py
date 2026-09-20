@@ -650,6 +650,39 @@ class StandardTagTests(unittest.TestCase):
         )
         self.assertIn("support", value["folders"])
 
+    def test_direct_files_publish_their_own_overwrite_flag(self) -> None:
+        operator = SimpleNamespace(
+            Tags=FakeOperatorTags,
+            initial_filter_aliases=[],
+        )
+        url = (
+            "https://raw.githubusercontent.com/example/project/"
+            "0123456789abcdef0123456789abcdef01234567/Scripts/"
+        )
+        direct_files = (
+            db_helpers.DirectFile(
+                path="Scripts/replaced.sh", url=url + "replaced.sh", data=b"a"
+            ),
+            db_helpers.DirectFile(
+                path="Scripts/kept.sh",
+                url=url + "kept.sh",
+                data=b"b",
+                overwrite=False,
+            ),
+        )
+
+        with patch.object(db_helpers, "load_db_operator", return_value=operator):
+            value = db_helpers.build_direct_database(
+                folder="example",
+                repository="example/project",
+                timestamp=1,
+                filter_terms=("example",),
+                direct_files=direct_files,
+            )
+
+        self.assertTrue(value["files"]["Scripts/replaced.sh"]["overwrite"])
+        self.assertFalse(value["files"]["Scripts/kept.sh"]["overwrite"])
+
 
 if __name__ == "__main__":
     unittest.main()
