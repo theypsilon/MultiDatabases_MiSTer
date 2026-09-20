@@ -2733,5 +2733,76 @@ class ShmupDeckGeneratorTests(unittest.TestCase):
                 self.generator.main()
 
 
+class CifsScriptsGeneratorTests(unittest.TestCase):
+    MOUNT_SHA = "a" * 40
+    UMOUNT_SHA = "b" * 40
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("cifs-scripts")
+
+    def test_pins_each_script_to_its_own_latest_commit(self) -> None:
+        requested: list[str] = []
+
+        def commits(url: str) -> list[dict[str, str]]:
+            requested.append(url)
+            self.assertIn("sha=master", url)
+            self.assertIn("per_page=1", url)
+            if "path=cifs_mount.sh" in url:
+                return [{"sha": self.MOUNT_SHA}]
+            if "path=cifs_umount.sh" in url:
+                return [{"sha": self.UMOUNT_SHA}]
+            raise AssertionError(url)
+
+        with (
+            patch.object(self.generator, "github_json", side_effect=commits),
+            patch.object(
+                self.generator, "http_get_bytes", return_value=b"#!/bin/bash\n"
+            ),
+        ):
+            files = [
+                self.generator.script_file(script)
+                for script in self.generator.SCRIPTS
+            ]
+
+        self.assertEqual(2, len(requested))
+        self.assertEqual(
+            [
+                (
+                    "Scripts/cifs_mount.sh",
+                    "https://raw.githubusercontent.com/MiSTer-devel/"
+                    f"Scripts_MiSTer/{self.MOUNT_SHA}/cifs_mount.sh",
+                ),
+                (
+                    "Scripts/cifs_umount.sh",
+                    "https://raw.githubusercontent.com/MiSTer-devel/"
+                    f"Scripts_MiSTer/{self.UMOUNT_SHA}/cifs_umount.sh",
+                ),
+            ],
+            [(item.path, item.url) for item in files],
+        )
+
+    def test_fails_when_a_script_vanishes_upstream(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "removed or renamed"):
+            self.generator.latest_commit_sha([], "cifs_mount.sh")
+
+    def test_rejects_an_unresolved_commit(self) -> None:
+        for commits in ({"message": "Not Found"}, [{"sha": "master"}], ["x"]):
+            with self.assertRaises(RuntimeError):
+                self.generator.latest_commit_sha(commits, "cifs_mount.sh")
+
+    def test_rejects_a_payload_that_is_not_a_script(self) -> None:
+        with (
+            patch.object(
+                self.generator, "github_json", return_value=[{"sha": self.MOUNT_SHA}]
+            ),
+            patch.object(
+                self.generator, "http_get_bytes", return_value=b"<html></html>"
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "not a shell script"):
+                self.generator.script_file("cifs_mount.sh")
+
+
 if __name__ == "__main__":
     unittest.main()
