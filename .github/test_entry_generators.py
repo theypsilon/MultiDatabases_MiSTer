@@ -245,6 +245,104 @@ class MisterFinGeneratorTests(unittest.TestCase):
         self.assertIsNone(pattern.fullmatch("misterfin-source.zip"))
 
 
+class MisterVisionGeneratorTests(unittest.TestCase):
+    ARM_BINARY = (
+        b"\x7fELF\x01\x01\x01" + bytes(9) + b"\x02\x00\x28\x00" + bytes(600_000)
+    )
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("mister-vision")
+
+    def release_members(self, *extra: str, **overrides: bytes):
+        contents = {
+            "INSTALL.txt": b"notes",
+            "SHA256SUMS": b"sums",
+            "Scripts/MiSTerVision.sh": b"#!/bin/bash\n",
+            "mistervision/InterlacedMenu.rbf": b"core",
+            "mistervision/VERSION": b"v1.4.1\n",
+            "mistervision/licenses/mplayer/LICENSE": b"license",
+            "mistervision/mistervision": self.ARM_BINARY,
+            "mistervision/mplayer-arm": self.ARM_BINARY,
+            "mistervision/settings.example.json": b"{}",
+            **{path: b"data" for path in extra},
+            **overrides,
+        }
+        return [
+            self.generator.ArchiveMember(archive_path=path, path=path, data=data)
+            for path, data in contents.items()
+        ]
+
+    def test_installs_the_mister_files_at_their_archive_paths(self) -> None:
+        selected = self.generator.selected_files(
+            list(reversed(self.release_members())), "v1.4.1"
+        )
+
+        self.assertEqual(
+            [
+                "Scripts/MiSTerVision.sh",
+                "mistervision/InterlacedMenu.rbf",
+                "mistervision/VERSION",
+                "mistervision/licenses/mplayer/LICENSE",
+                "mistervision/mistervision",
+                "mistervision/mplayer-arm",
+                "mistervision/settings.example.json",
+            ],
+            [destination for destination, _ in selected],
+        )
+        for destination, member in selected:
+            self.assertEqual(destination, member.archive_path)
+
+    def test_rejects_unreviewed_files_outside_the_app_folder(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "Scripts/Other.sh"):
+            self.generator.selected_files(
+                self.release_members("Scripts/Other.sh"), "v1.4.1"
+            )
+
+    def test_rejects_packaged_user_settings_and_state(self) -> None:
+        for path in (
+            "mistervision/settings.json",
+            "mistervision/jellyfin.conf",
+            "mistervision/state/session.json",
+        ):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(RuntimeError, "settings and saved state"):
+                    self.generator.selected_files(
+                        self.release_members(path), "v1.4.1"
+                    )
+
+    def test_rejects_a_release_missing_the_player(self) -> None:
+        members = [
+            member
+            for member in self.release_members()
+            if member.path != "mistervision/mplayer-arm"
+        ]
+        with self.assertRaisesRegex(RuntimeError, "mistervision/mplayer-arm"):
+            self.generator.selected_files(members, "v1.4.1")
+
+    def test_rejects_a_zip_packaging_another_version(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "named v1.4.2 but packages"):
+            self.generator.selected_files(self.release_members(), "v1.4.2")
+
+    def test_rejects_a_non_arm_client(self) -> None:
+        members = self.release_members(
+            **{"mistervision/mistervision": b"#!/bin/sh\n" + bytes(600_000)}
+        )
+        with self.assertRaisesRegex(RuntimeError, "not an ELF binary"):
+            self.generator.selected_files(members, "v1.4.1")
+
+    def test_asset_pattern_follows_only_the_progressive_zip(self) -> None:
+        pattern = self.generator.ASSET_PATTERN
+        self.assertEqual(
+            "v1.4.1",
+            pattern.fullmatch("mistervision-v1.4.1-progressive.zip").group(1),
+        )
+        self.assertIsNone(pattern.fullmatch("mistervision-v1.4.1-interlaced.zip"))
+        self.assertIsNone(pattern.fullmatch("mistervision-v1.4.1-source.tar.gz"))
+        # The pre-1.4.1 name: a return to it must fail instead of going stale.
+        self.assertIsNone(pattern.fullmatch("mistervision-v1.4.0-mister.zip"))
+
+
 class ScriptsAppEntryTests:
     """Shared checks for the entries that ship a Scripts launcher plus payload."""
 
