@@ -780,6 +780,63 @@ class SolarusGeneratorTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "games/Solarus/solarus-run"):
             self.generator.selected_files(members)
 
+    def hybrid_release_members(self, *, platform_root: str):
+        """Upstream's mister-hybrid layout, with the hook under `platform_root`.
+
+        v1.3.0 published the shared main= binary and its per-core registry under
+        `linux/`; v1.3.1 moved both into `games/Solarus/platform/`. Either way
+        the ARM daemon that used to own the launch, and the quest manager it
+        spawned, are gone.
+        """
+        members = [
+            member
+            for member in self.release_members()
+            if member.path
+            not in ("games/Solarus/quest_manager.sh", self.generator.DAEMON)
+        ]
+        return members + [
+            self.member(path)
+            for path in (
+                "Scripts/Solarus_CoresMenu.sh",
+                "_Other/Solarus.mgl",
+                "games/Solarus/launch.sh",
+                "games/Solarus/solarus_start.sh",
+                "games/Solarus/platform/ini_main.sh",
+                "games/Solarus/platform/launch_lib.sh",
+                "games/Solarus/platform/mem_wc/mem_wc-5.15.1-MiSTer.ko",
+                "games/Solarus/platform/mem_wc_load.sh",
+                "games/Solarus/platform/mister_cores.tsv",
+                f"{platform_root}/MiSTer_hybrid",
+                f"{platform_root}/hybrid.d/Solarus.conf",
+            )
+        ]
+
+    def test_rejects_the_hybrid_platform_layout_until_it_is_reviewed(self) -> None:
+        # v1.3.0 put the shared hook in `linux`, an invalid root folder for
+        # every database, so none of it could be installed.
+        with self.assertRaisesRegex(
+            RuntimeError,
+            r"outside its MiSTer folders: linux/MiSTer_hybrid, "
+            r"linux/hybrid\.d/Solarus\.conf",
+        ):
+            self.generator.selected_files(
+                self.hybrid_release_members(platform_root="linux")
+            )
+
+        # v1.3.1 moved the hook inside this entry's own folders, so the paths
+        # are installable again, but the reviewed contract still names two
+        # files upstream deleted. Replacing them is a human's decision.
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "missing required files: games/Solarus/quest_manager.sh, "
+            "games/Solarus/solarus_daemon.sh",
+        ):
+            self.generator.selected_files(
+                self.hybrid_release_members(
+                    platform_root="games/Solarus/platform"
+                )
+            )
+
     def test_asset_pattern_only_accepts_versioned_release_zips(self) -> None:
         pattern = self.generator.ASSET_PATTERN
         self.assertEqual(
@@ -935,6 +992,73 @@ class MalditaCastillaGeneratorTests(unittest.TestCase):
                     self.select(
                         self.release_members(self.member(path, b"#!/bin/bash\n"))
                     )
+
+    def hybrid_release_members(self, *, platform_root: str):
+        """Upstream's mister-hybrid layout, with the hook under `platform_root`.
+
+        v0.4.0 published the shared main= binary and its per-core registry under
+        `linux/`; v0.4.1 moved both into `games/gmloader/platform/`. Either way
+        the per-core `MiSTer_Maldita` wrapper is gone, the engine launcher and
+        the mem_wc loader left `games/Maldita Castilla/`, and the release ships
+        a Cores-browser `.mgl` next to the core.
+        """
+        generator = self.generator
+        moved = {
+            generator.ENGINE_LAUNCHER: "games/gmloader/launch.sh",
+            generator.MEMORY_MODULE_LOADER: (
+                "games/gmloader/platform/mem_wc_load.sh"
+            ),
+            "games/Maldita Castilla/mem_wc-5.15.1-MiSTer.ko": (
+                "games/gmloader/platform/mem_wc/mem_wc-5.15.1-MiSTer.ko"
+            ),
+        }
+        members = [
+            self.member(moved.get(member.path, member.path), member.data)
+            for member in self.release_members()
+            if member.path != generator.WRAPPER
+        ]
+        return members + [
+            self.member(f"{platform_root}/MiSTer_hybrid", self.ARM_BINARY),
+            self.member(
+                f"{platform_root}/hybrid.d/Maldita Castilla.conf",
+                b"launcher=/media/fat/games/gmloader/launch.sh\n",
+            ),
+            self.member("games/gmloader/platform/launch_lib.sh", b"#!/bin/bash\n"),
+            self.member(
+                "_Other/Maldita Castilla.mgl",
+                b"<mistergamedescription>\n</mistergamedescription>\n",
+            ),
+        ]
+
+    def test_rejects_the_hybrid_platform_layout_until_it_is_reviewed(self) -> None:
+        # v0.4.0 put the shared hook in `linux`, an invalid root folder for
+        # every database, so none of it could be installed.
+        with self.assertRaisesRegex(
+            RuntimeError,
+            r"outside its MiSTer folders: linux/MiSTer_hybrid, "
+            r"linux/hybrid\.d/Maldita Castilla\.conf",
+        ):
+            self.select(self.hybrid_release_members(platform_root="linux"))
+
+        # v0.4.1 moved the hook inside this entry's own folders, so the paths
+        # are installable again. The gates that refuse it now are all reviewed
+        # constants: the `_Other/` allowance first, then the contract.
+        members = self.hybrid_release_members(
+            platform_root="games/gmloader/platform"
+        )
+        with self.assertRaisesRegex(RuntimeError, "unexpected files under _Other"):
+            self.select(members)
+
+        without_mgl = [
+            member for member in members if not member.path.endswith(".mgl")
+        ]
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "missing required files: games/Maldita Castilla/launch.sh, "
+            "games/Maldita Castilla/mem_wc_load.sh, "
+            "games/gmloader/MiSTer_Maldita",
+        ):
+            self.select(without_mgl)
 
     def test_rejects_user_owned_and_daemon_controlled_files(self) -> None:
         unsafe = (

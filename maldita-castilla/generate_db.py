@@ -55,6 +55,20 @@ MAX_ARCHIVE_FILES = 256
 MAX_UNCOMPRESSED_SIZE = 256_000_000
 MAX_MEMBER_SIZE = 128_000_000
 
+# Upstream v0.4.0 (2026-09-26) moved this port onto the shared mister-hybrid
+# platform and stops this generator on purpose. games/gmloader/MiSTer_Maldita,
+# the per-core main= wrapper, was replaced by a shared MiSTer_hybrid binary that
+# resolves the loaded core through <binary dir>/hybrid.d/<core>.conf, the engine
+# launcher and the mem_wc loader moved out of games/Maldita Castilla/ into
+# games/gmloader/, and _Other/Maldita Castilla.mgl was added. v0.4.0 shipped the
+# hybrid pair under linux/, a root folder no database may write; v0.4.1
+# (2026-09-28) moved it to games/gmloader/platform/ and made the binary resolve
+# its registry next to itself, so the release is installable again. What the
+# contract becomes - WRAPPER, ENGINE_LAUNCHER, MEMORY_MODULE_LOADER,
+# MODULE_PATTERN, the launcher markers, the _Other/ allowance and the README's
+# main= line - is a reviewed decision. The gates below refuse v0.4.x until a
+# human takes it; do not widen them to make the build green.
+
 # These are convenience menu/configuration tools. The supported launch route is
 # the dated RBF plus MiSTer.ini's main= wrapper, so neither belongs in the DB.
 OMITTED_MENU_SCRIPTS = (

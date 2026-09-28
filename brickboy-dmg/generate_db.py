@@ -25,6 +25,14 @@ from db_helpers import (  # noqa: E402
 
 
 FOLDER = "brickboy-dmg"
+# Upstream disappeared between the 2026-09-28 01:45 and 08:30 UTC builds: the
+# repository and its owner account both answer 404, and so does the release
+# asset URL the published database still points users at. Nothing here can be
+# fixed by code - there is no MiSTer BrickBoy DMG core left to follow anywhere -
+# so this generator fails loudly on every run until a human decides what happens
+# to the entry. Do not repoint UPSTREAM at a look-alike repository: the only
+# brickboy-dmg-fpgacore on GitHub today belongs to a different account and
+# publishes an Analogue Pocket openFPGA core, not this .rbf.
 UPSTREAM = "kandowontu/brickboy-dmg-fpgacore"
 RBF_PATTERN = re.compile(r"BrickBoy_DMG\.rbf", re.IGNORECASE)
 

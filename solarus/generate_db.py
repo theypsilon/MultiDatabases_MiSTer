@@ -38,6 +38,15 @@ IGNORED = ("BUILD-INFO.txt",)
 # registers itself into user-startup.sh, so an updated daemon takes over on the
 # next boot rather than on the next core load.
 DAEMON = "games/Solarus/solarus_daemon.sh"
+
+# Upstream v1.3.0 (2026-09-27) moved this port onto the shared mister-hybrid
+# platform and stops this generator on purpose: the ARM-side daemon that owned
+# the launch is gone, so DAEMON and two entries of REQUIRED below no longer
+# exist upstream. v1.3.1 keeps the new layout inside games/Solarus/, so the
+# release is installable again, but which files make up the contract - and what
+# replaces the daemon as the reboot-on-update path now that nothing survives a
+# core change - is a reviewed decision. The build stays red until a human takes
+# it; do not widen REQUIRED to make it green.
 REQUIRED = (
     DAEMON,
     "Scripts/Solarus.sh",
