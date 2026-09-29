@@ -25,6 +25,18 @@ from db_helpers import (  # noqa: E402
 
 
 FOLDER = "brickboy-dmg"
+# 2026-09-28: this upstream stopped existing. The repository and the
+# `kandowontu` account both answer 404 over the API and over HTTPS with no
+# redirect, so it was removed rather than renamed; GitHub redirects renamed
+# owners and repositories. The v0.2.0 asset this database still publishes went
+# with it, so there is nothing left to follow and nothing left to install.
+#
+# Do not repoint UPSTREAM at the identically named
+# `kathoc/brickboy-dmg-fpgacore`. That is the Analogue Pocket project this
+# entry's upstream was a fork of: it publishes `brickboy-dmg-pocket.zip` under
+# its own v0.1.0 and v0.2.0 tags and no MiSTer `.rbf`. A different repository
+# is a different project and needs its own review even under an identical
+# name, so `select_rbf_asset` refuses it on purpose.
 UPSTREAM = "kandowontu/brickboy-dmg-fpgacore"
 RBF_PATTERN = re.compile(r"BrickBoy_DMG\.rbf", re.IGNORECASE)
 

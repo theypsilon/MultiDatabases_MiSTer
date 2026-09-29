@@ -138,6 +138,19 @@ class BrickBoyDmgReleaseTests(unittest.TestCase):
                 }
             )
 
+    def test_rejects_the_identically_named_pocket_project(self) -> None:
+        # `kathoc/brickboy-dmg-fpgacore`, the Analogue Pocket project this
+        # entry's withdrawn upstream was a fork of, still carries that exact
+        # repository name and reuses the v0.2.0 tag. Repointing UPSTREAM at it
+        # must fail instead of quietly publishing someone else's project.
+        with self.assertRaisesRegex(RuntimeError, "exactly one BrickBoy_DMG"):
+            self.generator.select_rbf_asset(
+                {
+                    "tag_name": "v0.2.0",
+                    "assets": [self.asset("brickboy-dmg-pocket.zip")],
+                }
+            )
+
     def test_rejects_an_ambiguous_release(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "found 2"):
             self.generator.select_rbf_asset(
