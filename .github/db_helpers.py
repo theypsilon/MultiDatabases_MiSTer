@@ -823,35 +823,6 @@ def build_direct_database(
     return database
 
 
-def build_empty_database(
-    *,
-    folder: str,
-    repository: str,
-    timestamp: int,
-    compressed_db_url: bool = False,
-) -> dict[str, Any]:
-    """Build a retired entry's database: valid, published, installing nothing.
-
-    An entry whose upstream ceased to exist cannot keep advertising payload URLs
-    that stopped resolving, and it has no payload left to hash, so it publishes
-    a document with no files, no folders and no tags. The `db_url` stays alive,
-    which is what keeps an already configured Downloader working, and listing
-    nothing is what makes Downloader uninstall what the entry installed before.
-    There are no filter terms because there is nothing left to filter.
-    """
-    database = {
-        "v": 1,
-        "db_id": database_id(folder),
-        "db_url": database_url(repository, folder, compressed=compressed_db_url),
-        "timestamp": timestamp,
-        "files": {},
-        "folders": {},
-        "tag_dictionary": {},
-    }
-    validate_database(database)
-    return database
-
-
 def apply_standard_tags(
     database: dict[str, Any],
     *,

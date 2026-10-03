@@ -16,7 +16,6 @@ import db_helpers
 from db_helpers import (
     ArchiveMember,
     apply_standard_tags,
-    build_empty_database,
     compatible_release_zip,
     database_id,
     database_url,
@@ -199,60 +198,6 @@ class DatabaseUrlTests(unittest.TestCase):
                 encoding="utf-8"
             )
         self.assertIn(f"db_url = {self.BASE}/misterfin/db.json.zip", ini)
-
-
-class EmptyDatabaseTests(unittest.TestCase):
-    REPOSITORY = "theypsilon/MultiDatabases_MiSTer"
-
-    def test_a_retired_entry_publishes_a_valid_database_that_lists_nothing(
-        self,
-    ) -> None:
-        value = build_empty_database(
-            folder="brickboy-dmg", repository=self.REPOSITORY, timestamp=100
-        )
-
-        validate_database(value)
-        self.assertEqual({}, value["files"])
-        self.assertEqual({}, value["folders"])
-        self.assertEqual({}, value["tag_dictionary"])
-        self.assertEqual("MultiDatabases/brickboy-dmg", value["db_id"])
-        self.assertEqual(
-            database_url(self.REPOSITORY, "brickboy-dmg"), value["db_url"]
-        )
-        self.assertEqual(100, value["timestamp"])
-
-    def test_retiring_keeps_a_compressed_db_url_published(self) -> None:
-        # A published db_url never changes, so an entry that was serving the
-        # ZIP keeps serving the ZIP after it is retired.
-        value = build_empty_database(
-            folder="misterfin",
-            repository=self.REPOSITORY,
-            timestamp=100,
-            compressed_db_url=True,
-        )
-
-        self.assertEqual(
-            database_url(self.REPOSITORY, "misterfin", compressed=True),
-            value["db_url"],
-        )
-
-    def test_it_writes_a_bundle_with_a_working_drop_in(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            output = Path(temporary_directory) / "brickboy-dmg"
-            value = build_empty_database(
-                folder="brickboy-dmg", repository=self.REPOSITORY, timestamp=100
-            )
-
-            self.assertTrue(write_bundle(value, output))
-
-            ini = (output / "downloader_MultiDatabases_brickboy-dmg.ini").read_text(
-                encoding="utf-8"
-            )
-        self.assertEqual(
-            "[MultiDatabases/brickboy-dmg]\ndb_url = "
-            f"{database_url(self.REPOSITORY, 'brickboy-dmg')}\n",
-            ini,
-        )
 
 
 class PayloadUrlTests(unittest.TestCase):
