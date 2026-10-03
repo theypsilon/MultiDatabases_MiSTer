@@ -955,28 +955,66 @@ class MalditaCastillaGeneratorTests(unittest.TestCase):
             for member in members
         ]
 
-    def test_installs_the_runtime_without_menu_scripts(self) -> None:
+    def test_installs_the_runtime_and_menu_scripts(self) -> None:
         members = self.release_members()
         selected = self.select(list(reversed(members)))
 
-        omitted = {"README.md", *self.generator.OMITTED_MENU_SCRIPTS}
         expected = sorted(
-            member.path for member in members if member.path not in omitted
+            member.path for member in members if member.path != "README.md"
         )
         self.assertEqual(expected, [path for path, _ in selected])
-        self.assertEqual(25, len(selected))
-        self.assertFalse(any(path.startswith("Scripts/") for path, _ in selected))
+        self.assertEqual(27, len(selected))
+        self.assertEqual(
+            sorted(self.generator.MENU_SCRIPTS),
+            [path for path, _ in selected if path.startswith("Scripts/")],
+        )
 
-    def test_does_not_require_the_upstream_menu_scripts(self) -> None:
-        members = [
-            member
-            for member in self.release_members()
-            if member.path not in self.generator.OMITTED_MENU_SCRIPTS
-        ]
+    def test_requires_the_menu_scripts(self) -> None:
+        # They are the only way the database sets MiSTer.ini's main= line.
+        for path in sorted(self.generator.MENU_SCRIPTS):
+            with self.subTest(path=path):
+                members = [
+                    member
+                    for member in self.release_members()
+                    if member.path != path
+                ]
+                with self.assertRaisesRegex(RuntimeError, "missing required"):
+                    self.select(members)
 
-        selected = dict(self.select(members))
-        self.assertIn(self.generator.ENGINE_LAUNCHER, selected)
-        self.assertIn(self.generator.WRAPPER, selected)
+    def test_rejects_a_menu_script_that_does_not_set_the_hook(self) -> None:
+        members = self.replace(
+            self.release_members(),
+            self.generator.MENU_SCRIPT,
+            b"#!/bin/bash\n"
+            b'RBF_GLOB="/media/fat/_Other/MalditaCastilla_*.rbf"\n',
+        )
+        with self.assertRaisesRegex(RuntimeError, "MiSTer_hybrid"):
+            self.select(members)
+
+    LEGACY_MAIN_SCRIPT = (
+        b"#!/bin/sh\n"
+        b'HOOK="${MH_HOOK:-/media/fat/games/gmloader/platform/MiSTer_hybrid}"\n'
+        b'STOCK="${MH_STOCK:-/media/fat/MiSTer}"\n'
+        b'exec "$HOOK" "$@"\n'
+    )
+
+    def test_installs_the_legacy_main_stand_in(self) -> None:
+        members = self.release_members(
+            self.member(self.generator.LEGACY_MAIN, self.LEGACY_MAIN_SCRIPT)
+        )
+        self.assertIn(self.generator.LEGACY_MAIN, dict(self.select(members)))
+
+    def test_rejects_a_legacy_main_that_does_not_exec_the_hook(self) -> None:
+        for data in (
+            bytes(self.ARM_BINARY),  # the v0.3.x wrapper binary
+            self.LEGACY_MAIN_SCRIPT.replace(b'exec "$HOOK" "$@"\n', b""),
+        ):
+            with self.subTest(data=data[:16]):
+                members = self.release_members(
+                    self.member(self.generator.LEGACY_MAIN, data)
+                )
+                with self.assertRaises(RuntimeError):
+                    self.select(members)
 
     def test_rejects_files_outside_the_mister_install_roots(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "outside its MiSTer folders"):

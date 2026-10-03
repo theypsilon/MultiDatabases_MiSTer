@@ -63,19 +63,26 @@ MAX_MEMBER_SIZE = 128_000_000
 # refuses for every database but distribution_mister, so it was never
 # published here.
 
-# These are convenience menu/configuration tools. The supported launch route is
-# the dated RBF plus MiSTer.ini's main= hook, so neither belongs in the DB.
-OMITTED_MENU_SCRIPTS = (
-    "Scripts/MalditaCastilla.sh",
-    "Scripts/MalditaCastilla_CoresMenu.sh",
-)
-IGNORED = frozenset(
-    path.casefold() for path in ("README.md", *OMITTED_MENU_SCRIPTS)
-)
+# The Downloader cannot edit MiSTer.ini, so the [Maldita Castilla] main= line
+# comes from these, as for Solarus: running Scripts/MalditaCastilla.sh once adds
+# main=games/gmloader/platform/MiSTer_hybrid (backing MiSTer.ini up first) and
+# loads the core; the CoresMenu entry turns that line off and on. They are the
+# only Scripts/ files installed.
+MENU_SCRIPT = "Scripts/MalditaCastilla.sh"
+CORES_MENU_SCRIPT = "Scripts/MalditaCastilla_CoresMenu.sh"
+MENU_SCRIPTS = frozenset({MENU_SCRIPT, CORES_MENU_SCRIPT})
+IGNORED = frozenset({"README.md".casefold()})
 INSTALL_ROOTS = (
+    "Scripts/",
     "_Other/",
     "games/gmloader/",
 )
+# The v0.3.x database installed a main= wrapper binary here, and its README had
+# users point main= at it. Newer releases put the platform's stand-in script at
+# the same path: MiSTer execs it as main=, it repoints [Maldita Castilla] main=
+# at MiSTer_hybrid and then execs that, so an upgraded MiSTer.ini starts the
+# game instead of stock MiSTer. Optional: releases before it lack the file.
+LEGACY_MAIN = "games/gmloader/MiSTer_Maldita"
 PUBLISHED_SAVE_FILES = frozenset(
     {
         "games/gmloader/saves/game.droid",
@@ -114,6 +121,8 @@ CREDITS = "games/gmloader/maldita-castilla-readme.txt"
 
 REQUIRED = frozenset(
     {
+        MENU_SCRIPT,
+        CORES_MENU_SCRIPT,
         ENGINE_LAUNCHER,
         PLATFORM_LAUNCHER,
         MEMORY_MODULE_LOADER,
@@ -436,7 +445,10 @@ def selected_files(
     }
 
     unexpected = sorted(
-        path for path in installable if not path.startswith(INSTALL_ROOTS)
+        path
+        for path in installable
+        if not path.startswith(INSTALL_ROOTS)
+        or (path.startswith("Scripts/") and path not in MENU_SCRIPTS)
     )
     if unexpected:
         raise RuntimeError(
@@ -527,6 +539,31 @@ def selected_files(
             "platform/launch_lib.sh",
         ),
     )
+    _validate_script(
+        installable[MENU_SCRIPT],
+        markers=(
+            "/media/fat/games/gmloader/platform/MiSTer_hybrid",
+            "/media/fat/_Other/MalditaCastilla_",
+        ),
+    )
+    _validate_script(
+        installable[CORES_MENU_SCRIPT],
+        markers=(
+            "/media/fat/games/gmloader/platform/MiSTer_hybrid",
+            "/media/fat/MiSTer.ini",
+        ),
+    )
+    if LEGACY_MAIN in installable:
+        # It must hand over to the hook, or fall back to stock MiSTer: nothing
+        # respawns MiSTer if the process MiSTer exec'd as main= just exits.
+        _validate_script(
+            installable[LEGACY_MAIN],
+            markers=(
+                "/media/fat/games/gmloader/platform/MiSTer_hybrid",
+                'exec "$HOOK" "$@"',
+                "/media/fat/MiSTer",
+            ),
+        )
     _validate_library(installable[PLATFORM_LAUNCHER], markers=("mh_main()",))
     _validate_library(
         installable[MEMORY_MODULE_LOADER], markers=("mem_wc-", "uname -r")
