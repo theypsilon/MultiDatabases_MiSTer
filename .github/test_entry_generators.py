@@ -831,6 +831,274 @@ class SolarusGeneratorTests(unittest.TestCase):
         self.assertIsNone(pattern.fullmatch("solarus-mister-source.zip"))
 
 
+class HybridPortEntryTests:
+    """Shared checks for the mister-hybrid platform ports with user-supplied data."""
+
+    GAMEDIR: str
+    CORE: str
+    ENGINE_COMMAND: bytes
+    ASSET: str
+    EXTRA_FILES: tuple[str, ...]
+    USER_FILES: tuple[str, ...]
+
+    ARM_ELF = (
+        b"\x7fELF\x01\x01\x01" + bytes(9) + b"\x02\x00\x28\x00" + bytes(32)
+    )
+    ARM_BINARY = ARM_ELF + bytes(600_000) + b"GLIBC_2.29\0"
+
+    @property
+    def name(self) -> str:
+        return self.GAMEDIR.rsplit("/", 1)[-1]
+
+    def member(self, path: str, data: bytes = b"data"):
+        return self.generator.ArchiveMember(archive_path=path, path=path, data=data)
+
+    def contents(self) -> dict[str, bytes]:
+        generator, name = self.generator, self.name
+        hook = f"/media/fat/{generator.WRAPPER}".encode()
+        contents = {
+            f"Scripts/{name}.sh": b'#!/bin/bash\nHOOK="' + hook + b'"\n',
+            f"Scripts/{name}_CoresMenu.sh": (
+                b'#!/bin/bash\nWRAPPER="${MH_HOOK:-' + hook + b'}"\n'
+            ),
+            f"_Other/{name}.mgl": (
+                b"<mistergamedescription>\n\t<rbf>_Other/"
+                + name.encode()
+                + b"</rbf>\n</mistergamedescription>\n"
+            ),
+            self.CORE: bytes(1_000_000),
+            generator.ENGINE_LAUNCHER: (
+                b"#!/bin/bash\n"
+                b'MH_GAMEDIR="${MH_ROOT:-}/media/fat/' + self.GAMEDIR.encode() + b'"\n'
+                b"MH_ENGINE_CMD=(" + self.ENGINE_COMMAND + b")\n"
+                b'. "$MH_GAMEDIR/platform/launch_lib.sh"\nmh_main\n'
+            ),
+            generator.PLATFORM_LAUNCHER: b"# shellcheck shell=bash\nmh_main() {\n    :\n}\n",
+            f"{self.GAMEDIR}/platform/mem_wc_load.sh": b"# shellcheck shell=sh\n",
+            f"{self.GAMEDIR}/platform/mem_wc/mem_wc-6.18.38-MiSTer.ko": self.ARM_ELF,
+            generator.ENGINE: self.ARM_BINARY,
+            generator.WRAPPER: self.ARM_BINARY + generator.WRAPPER_MARKER,
+            generator.REGISTRY: (
+                b"launcher=/media/fat/" + generator.ENGINE_LAUNCHER.encode() + b"\n"
+                b"noengine=/media/fat/" + self.GAMEDIR.encode() + b"/NOENGINE\n"
+            ),
+            f"{self.GAMEDIR}/README.md": b"# readme\n",
+        }
+        for path in self.EXTRA_FILES:
+            contents[path] = self.ARM_ELF if path.endswith(".so") or ".so." in path else b"x"
+        return contents
+
+    def release_members(self, *extra, replace=None, drop=()):
+        contents = self.contents()
+        contents.update(replace or {})
+        members = [
+            self.member(path, data)
+            for path, data in contents.items()
+            if path not in drop
+        ]
+        return [*members, *extra]
+
+    def release(self, tag: str, *names: str) -> dict:
+        return {
+            "tag_name": tag,
+            "assets": [
+                {
+                    "name": name,
+                    "browser_download_url": (
+                        f"https://github.com/{self.generator.UPSTREAM}/releases/"
+                        f"download/{tag}/{name}"
+                    ),
+                }
+                for name in names
+            ],
+        }
+
+    def test_installs_every_published_file_in_path_order(self) -> None:
+        members = self.release_members()
+        selected = self.generator.selected_files(list(reversed(members)))
+
+        self.assertEqual(
+            sorted(member.path for member in members),
+            [destination for destination, _ in selected],
+        )
+
+    def test_rejects_the_linux_layout_no_database_can_install(self) -> None:
+        # Upstream's 20260926 releases put the hook and its entry under linux/,
+        # which the Downloader refuses as a root folder for every database.
+        members = self.release_members(
+            self.member("linux/MiSTer_hybrid"),
+            self.member(f"linux/hybrid.d/{self.name}.conf"),
+            drop=(self.generator.WRAPPER, self.generator.REGISTRY),
+        )
+        with self.assertRaisesRegex(RuntimeError, "outside its MiSTer folders"):
+            self.generator.selected_files(members)
+
+    def test_never_ships_the_user_supplied_game_or_saves(self) -> None:
+        for path in self.USER_FILES:
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(RuntimeError, "user-supplied"):
+                    self.generator.selected_files(
+                        self.release_members(self.member(path))
+                    )
+
+    def test_rejects_a_release_without_exactly_one_dated_core(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "_YYYYMMDD.rbf"):
+            self.generator.selected_files(
+                self.release_members(self.member(f"_Other/{self.name}_20990101.rbf"))
+            )
+        with self.assertRaisesRegex(RuntimeError, "_YYYYMMDD.rbf"):
+            self.generator.selected_files(
+                self.release_members(
+                    self.member(f"_Other/{self.name}.rbf"), drop=(self.CORE,)
+                )
+            )
+
+    def test_rejects_unexpected_menu_entries(self) -> None:
+        for path in (f"_Other/{self.name}_Debug.mgl", "Scripts/update_all.sh"):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(RuntimeError, "unexpected files"):
+                    self.generator.selected_files(
+                        self.release_members(self.member(path, b"#!/bin/sh\n"))
+                    )
+
+    def test_rejects_a_release_missing_the_main_hook_or_its_entry(self) -> None:
+        for path in (self.generator.WRAPPER, self.generator.REGISTRY):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(RuntimeError, "missing required"):
+                    self.generator.selected_files(self.release_members(drop=(path,)))
+
+    def test_rejects_a_stock_main_as_the_hook(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "not the mister-hybrid main= hook"):
+            self.generator.selected_files(
+                self.release_members(replace={self.generator.WRAPPER: self.ARM_BINARY})
+            )
+
+    def test_rejects_an_engine_above_the_glibc_ceiling(self) -> None:
+        binary = self.ARM_ELF + bytes(600_000) + b"GLIBC_2.34\0"
+        with self.assertRaisesRegex(RuntimeError, "GLIBC_2.34"):
+            self.generator.selected_files(
+                self.release_members(replace={self.generator.ENGINE: binary})
+            )
+
+    def test_registry_entry_must_start_the_bundled_launcher(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "does not start"):
+            self.generator.selected_files(
+                self.release_members(
+                    replace={self.generator.REGISTRY: b"launcher=/tmp/other.sh\n"}
+                )
+            )
+
+    def test_launcher_must_run_the_engine_on_the_user_pack(self) -> None:
+        launcher = self.contents()[self.generator.ENGINE_LAUNCHER].replace(
+            b'"--main-pack"', b'"--pack"'
+        )
+        with self.assertRaisesRegex(RuntimeError, "--main-pack"):
+            self.generator.selected_files(
+                self.release_members(replace={self.generator.ENGINE_LAUNCHER: launcher})
+            )
+
+    def test_mgl_must_only_load_the_core(self) -> None:
+        mgl = (
+            b"<mistergamedescription><rbf>_Other/" + self.name.encode()
+            + b'</rbf><file delay="1" type="f" index="0" path="x"/>'
+            b"</mistergamedescription>"
+        )
+        with self.assertRaisesRegex(RuntimeError, "must only load"):
+            self.generator.selected_files(
+                self.release_members(replace={self.generator.CORE_MGL: mgl})
+            )
+
+    def test_module_pattern_marks_only_the_platform_kernel_modules(self) -> None:
+        pattern = self.generator.MODULE_PATTERN
+        self.assertIsNotNone(
+            pattern.fullmatch(f"{self.GAMEDIR}/platform/mem_wc/mem_wc-5.15.1-MiSTer.ko")
+        )
+        self.assertIsNone(pattern.fullmatch(self.generator.ENGINE))
+
+    def test_release_asset_follows_the_dated_tag(self) -> None:
+        for tag in ("20260928", "20260924e"):
+            with self.subTest(tag=tag):
+                asset, version = self.generator.release_asset(
+                    self.release(tag, self.ASSET.format(tag), "source.tar.gz")
+                )
+                self.assertEqual(tag, version)
+                self.assertEqual(self.ASSET.format(tag), asset["name"])
+
+    def test_release_asset_fails_instead_of_going_stale(self) -> None:
+        cases = {
+            "differ": self.release("20260929", self.ASSET.format("20260928")),
+            "exactly one": self.release(
+                "20260928", self.ASSET.format("20260928"), self.ASSET.format("20260927")
+            ),
+            "invalid tag": self.release("v1.0.0", self.ASSET.format("20260928")),
+        }
+        # A renamed asset must fail rather than leave the database parked.
+        cases["found 0"] = self.release("20260928", f"{self.name}-20260928.zip")
+        for message, release in cases.items():
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(RuntimeError, message):
+                    self.generator.release_asset(release)
+
+    def test_download_must_match_github_metadata(self) -> None:
+        data = bytes(2_000_000)
+        digest = "sha256:" + hashlib.sha256(data).hexdigest()
+        self.generator.validate_archive_download(
+            {"size": len(data), "digest": digest}, data
+        )
+        with self.assertRaisesRegex(RuntimeError, "size differs"):
+            self.generator.validate_archive_download(
+                {"size": len(data) + 1, "digest": digest}, data
+            )
+        with self.assertRaisesRegex(RuntimeError, "SHA-256"):
+            self.generator.validate_archive_download(
+                {"size": len(data), "digest": "sha256:" + "0" * 64}, data
+            )
+
+
+class CashCowDxGeneratorTests(HybridPortEntryTests, unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("cash-cow-dx")
+
+    GAMEDIR = "games/CashCowDX"
+    CORE = "_Other/CashCowDX_20260924.rbf"
+    ENGINE_COMMAND = b'"./cashcowdx" "--display-driver" "mister" "--main-pack" "CashCowDX.pck"'
+    ASSET = "CashCowDX-MiSTer-{}.zip"
+    EXTRA_FILES = (
+        "games/CashCowDX/libmisterfabric.so",
+        "games/CashCowDX/override.cfg",
+        "games/CashCowDX/patches/mister_patches.gdc",
+        "games/CashCowDX/sha256sums.txt",
+    )
+    USER_FILES = (
+        "games/CashCowDX/CashCowDX.pck",
+        "games/CashCowDX/NOENGINE",
+        "games/CashCowDX/data/godot/app_userdata/save.dat",
+    )
+
+
+class DonutDodoGeneratorTests(HybridPortEntryTests, unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("donut-dodo")
+
+    GAMEDIR = "games/DonutDodo"
+    CORE = "_Other/DonutDodo_20260922.rbf"
+    ENGINE_COMMAND = b'"./frt_3.5.2" "--main-pack" "gamedata/DonutDodo.pck" "--video-driver" "GLES2"'
+    ASSET = "DonutDodo-MiSTer-{}.zip"
+    EXTRA_FILES = (
+        "games/DonutDodo/LICENSE",
+        "games/DonutDodo/gamedata/PUT_DonutDodo.pck_HERE.txt",
+        "games/DonutDodo/libs/libSDL2-2.0.so.0",
+        "games/DonutDodo/libs/libmisterglue.so",
+    )
+    USER_FILES = (
+        "games/DonutDodo/gamedata/DonutDodo.pck",
+        "games/DonutDodo/NOENGINE",
+        "games/DonutDodo/conf/godot/app_userdata/Donut Dodo/save.cfg",
+    )
+
+
 class MalditaCastillaGeneratorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
