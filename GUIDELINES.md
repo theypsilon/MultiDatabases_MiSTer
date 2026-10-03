@@ -27,6 +27,16 @@
   bundle, also when the run fails, and the entry README lists the old URL as
   still published; see `distribution-mister-pinned-linux`. A retired name can
   never be reused for another entry.
+- An entry whose upstream ceases to exist is retired, never repointed: a
+  different repository is a different project and needs its own upstream
+  review even under an identical name, so a core that resurfaces elsewhere is
+  a fresh entry review and not an edit to the retired generator. Retiring keeps
+  the `db_url` and the `dist/<slug>` folder published, as a rename does, but the
+  entry stops advertising payload URLs that no longer resolve: its generator
+  takes no upstream and publishes `build_empty_database`, so it cannot fail and
+  the database lists no files, folders or tags. Weigh that the Downloader
+  removes files a database no longer lists, so retiring also uninstalls
+  whatever the entry had installed; see `brickboy-dmg`.
 - Prefer the latest published release/version, but validate its expected files
   and layout before accepting it. Install only files intended for MiSTer.
 - Prefer a loud failure over silently freezing on a stale version. Skipping an
@@ -66,6 +76,11 @@
 - State every required `MiSTer.ini` change and user-supplied BIOS/game file, or
   explicitly say none are required. Identify hybrid FPGA/ARM software where
   applicable.
+- A retired entry moves out of the main README table into its "Removed"
+  section, which records why it was removed. Both READMEs name the dead
+  upstream in plain text instead of linking a 404, and the entry README says
+  that the database is now empty, that its URL stays published, and which files
+  the next Downloader run removes.
 
 ## Publication invariants
 

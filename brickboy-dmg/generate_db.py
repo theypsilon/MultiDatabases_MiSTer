@@ -2,99 +2,50 @@
 
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
-from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".github"))
 
 from db_helpers import (  # noqa: E402
-    DirectFile,
-    build_direct_database,
+    build_empty_database,
     generation_timestamp,
     generator_parser,
-    git_file_revision,
-    github_latest_release,
-    github_raw_url,
-    http_get_bytes,
-    release_asset_url,
     write_bundle,
 )
 
 
 FOLDER = "brickboy-dmg"
-# 2026-09-28: this upstream stopped existing. The repository and the
-# `kandowontu` account both answer 404 over the API and over HTTPS with no
-# redirect, so it was removed rather than renamed; GitHub redirects renamed
-# owners and repositories. The v0.2.0 asset this database still publishes went
-# with it, so there is nothing left to follow and nothing left to install.
+# Retired: this entry publishes an empty database and follows no upstream.
 #
-# Do not repoint UPSTREAM at the identically named
-# `kathoc/brickboy-dmg-fpgacore`. That is the Analogue Pocket project this
-# entry's upstream was a fork of: it publishes `brickboy-dmg-pocket.zip` under
-# its own v0.1.0 and v0.2.0 tags and no MiSTer `.rbf`. A different repository
-# is a different project and needs its own review even under an identical
-# name, so `select_rbf_asset` refuses it on purpose.
-UPSTREAM = "kandowontu/brickboy-dmg-fpgacore"
-RBF_PATTERN = re.compile(r"BrickBoy_DMG\.rbf", re.IGNORECASE)
-
-
-def select_rbf_asset(release: dict[str, Any]) -> dict[str, Any]:
-    matches = []
-    for asset in release.get("assets") or []:
-        if not isinstance(asset, dict):
-            continue
-        name = str(asset.get("name") or "")
-        url = str(asset.get("browser_download_url") or "")
-        if RBF_PATTERN.fullmatch(name) and url.startswith("https://"):
-            matches.append(asset)
-
-    if len(matches) != 1:
-        tag = release.get("tag_name") or release.get("name") or "unknown"
-        raise RuntimeError(
-            f"BrickBoy DMG release {tag} must contain exactly one "
-            f"BrickBoy_DMG.rbf asset; found {len(matches)}"
-        )
-    return matches[0]
+# 2026-09-28: `kandowontu/brickboy-dmg-fpgacore` stopped existing. The
+# repository and the `kandowontu` account both answer 404 over the API and over
+# HTTPS with no redirect, so it was removed rather than renamed; GitHub
+# redirects renamed owners and repositories. The v0.2.0 `BrickBoy_DMG.rbf` this
+# database published went with it and its release URL answers 404 too, so every
+# install was failing on the core download. There is nothing left to follow,
+# nothing left to install, and no bytes left to hash, so the entry keeps its
+# published `db_url` alive with a database that lists nothing instead of
+# advertising a payload that cannot be fetched.
+#
+# Do not revive this entry by pointing it at the identically named
+# `kathoc/brickboy-dmg-fpgacore`. That is the Analogue Pocket project the
+# withdrawn upstream was a fork of: it publishes `brickboy-dmg-pocket.zip`
+# under its own v0.1.0 and v0.2.0 tags and no MiSTer `.rbf`. A different
+# repository is a different project and needs its own upstream review even
+# under an identical name, so reviving this core is a fresh entry review and
+# not an edit to this file.
 
 
 def main() -> int:
     args = generator_parser(
-        FOLDER, "Generate the BrickBoy DMG database"
+        FOLDER, "Generate the retired BrickBoy DMG database"
     ).parse_args()
-    release = github_latest_release(UPSTREAM)
-    asset = select_rbf_asset(release)
-    rbf_url = release_asset_url(asset)
-    rbf_data = http_get_bytes(rbf_url)
-
-    mgl_path = Path(__file__).with_name("BrickBoy_DMG.mgl")
-    mgl_url = github_raw_url(
-        args.repository,
-        git_file_revision(mgl_path),
-        "brickboy-dmg/BrickBoy_DMG.mgl",
-    )
-    mgl_data = mgl_path.read_bytes()
-
-    database = build_direct_database(
+    database = build_empty_database(
         folder=FOLDER,
         repository=args.repository,
         timestamp=generation_timestamp(args.timestamp),
-        filter_terms=(FOLDER, "console", "gb", "gbc"),
-        tag_aliases=((FOLDER, "brickboy"),),
-        direct_files=(
-            DirectFile(
-                path="_Custom Cores/Cores/BrickBoy_DMG.rbf",
-                url=rbf_url,
-                data=rbf_data,
-            ),
-            DirectFile(
-                path="Custom Cores/BrickBoy_DMG.mgl",
-                url=mgl_url,
-                data=mgl_data,
-            ),
-        ),
     )
     write_bundle(database, args.output)
     return 0

@@ -17,6 +17,8 @@ from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
 
+import db_helpers
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -108,60 +110,82 @@ class Mms2GbReleaseTests(unittest.TestCase):
             )
 
 
-class BrickBoyDmgReleaseTests(unittest.TestCase):
+class BrickBoyDmgRetirementTests(unittest.TestCase):
+    """This entry's upstream ceased to exist, so it publishes nothing."""
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.generator = load_generator("brickboy-dmg")
 
-    @staticmethod
-    def asset(name: str, url: str | None = None) -> dict[str, str]:
-        return {
-            "name": name,
-            "browser_download_url": url or f"https://example.com/{name}",
-        }
+    DB_URL = (
+        "https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/"
+        "db/brickboy-dmg/db.json"
+    )
 
-    def test_selects_the_exact_rbf_asset(self) -> None:
-        expected = self.asset("BrickBoy_DMG.rbf")
-        release = {
-            "tag_name": "v0.2.0",
-            "assets": [self.asset("source.zip"), expected],
-        }
-
-        self.assertIs(expected, self.generator.select_rbf_asset(release))
-
-    def test_rejects_a_release_without_the_exact_rbf(self) -> None:
-        with self.assertRaisesRegex(RuntimeError, "exactly one BrickBoy_DMG"):
-            self.generator.select_rbf_asset(
-                {
-                    "tag_name": "v0.3.0",
-                    "assets": [self.asset("BrickBoy_DMG_20260903.rbf")],
-                }
-            )
-
-    def test_rejects_the_identically_named_pocket_project(self) -> None:
-        # `kathoc/brickboy-dmg-fpgacore`, the Analogue Pocket project this
-        # entry's withdrawn upstream was a fork of, still carries that exact
-        # repository name and reuses the v0.2.0 tag. Repointing UPSTREAM at it
-        # must fail instead of quietly publishing someone else's project.
-        with self.assertRaisesRegex(RuntimeError, "exactly one BrickBoy_DMG"):
-            self.generator.select_rbf_asset(
-                {
-                    "tag_name": "v0.2.0",
-                    "assets": [self.asset("brickboy-dmg-pocket.zip")],
-                }
-            )
-
-    def test_rejects_an_ambiguous_release(self) -> None:
-        with self.assertRaisesRegex(RuntimeError, "found 2"):
-            self.generator.select_rbf_asset(
-                {
-                    "tag_name": "v0.3.0",
-                    "assets": [
-                        self.asset("BrickBoy_DMG.rbf", "https://one.example/core"),
-                        self.asset("brickboy_dmg.rbf", "https://two.example/core"),
+    def generate(self) -> tuple[dict, dict[str, bytes]]:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "brickboy-dmg"
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "generate_db.py",
+                        "--output", str(output),
+                        "--repository", "theypsilon/MultiDatabases_MiSTer",
+                        "--timestamp", "1700000000",
                     ],
-                }
-            )
+                ),
+                # A retired entry has no upstream left to reach, so reaching for
+                # one at all is the failure this guards against.
+                patch(
+                    "db_helpers.http_get_bytes",
+                    side_effect=AssertionError("a retired entry must stay offline"),
+                ),
+            ):
+                self.assertEqual(0, self.generator.main())
+
+            bundle = {
+                path.name: path.read_bytes()
+                for path in sorted(output.iterdir())
+                if path.is_file()
+            }
+        return json.loads(bundle["db.json"]), bundle
+
+    def test_publishes_an_empty_database(self) -> None:
+        database, _ = self.generate()
+
+        self.assertEqual({}, database["files"])
+        self.assertEqual({}, database["folders"])
+        self.assertEqual({}, database["tag_dictionary"])
+        self.assertNotIn("archives", database)
+
+    def test_keeps_the_already_published_identity_and_url(self) -> None:
+        database, bundle = self.generate()
+
+        self.assertEqual(1, database["v"])
+        self.assertEqual("MultiDatabases/brickboy-dmg", database["db_id"])
+        self.assertEqual(self.DB_URL, database["db_url"])
+        self.assertEqual(1700000000, database["timestamp"])
+        self.assertEqual(
+            f"[MultiDatabases/brickboy-dmg]\ndb_url = {self.DB_URL}\n",
+            bundle["downloader_MultiDatabases_brickboy-dmg.ini"].decode("utf-8"),
+        )
+
+    def test_the_database_stays_valid_for_the_downloader(self) -> None:
+        database, bundle = self.generate()
+
+        db_helpers.validate_database(database)
+        with zipfile.ZipFile(io.BytesIO(bundle["db.json.zip"])) as archive:
+            self.assertEqual(["db.json"], archive.namelist())
+            self.assertEqual(bundle["db.json"], archive.read("db.json"))
+
+    def test_advertises_no_withdrawn_payload(self) -> None:
+        # The v0.2.0 core URL this entry used to publish answers 404 now; the
+        # whole point of retiring is that nothing points at it any more.
+        _, bundle = self.generate()
+
+        self.assertNotIn(b"kandowontu", bundle["db.json"])
+        self.assertNotIn(b"BrickBoy_DMG", bundle["db.json"])
 
 
 class MisterFinGeneratorTests(unittest.TestCase):

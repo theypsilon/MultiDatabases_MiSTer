@@ -10,7 +10,6 @@ outside the databases.
 | --- | --- | --- |
 | [3S-ARM](3s-arm/) | Hybrid FPGA/ARM Street Fighter III: 3rd Strike port | [Inspect](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2F3s-arm%2Fdb.json) · [Upstream](https://github.com/kimchiman52/3s-mister-arm) |
 | [8-Bit Table Tennis](8bit-table-tennis/) | NES homebrew game | [Inspect](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2F8bit-table-tennis%2Fdb.json) · [Upstream](https://github.com/mike42/8bit-table-tennis) |
-| [BrickBoy DMG](brickboy-dmg/) | Game Boy core with a detailed DMG LCD panel and speaker model | [Inspect](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fbrickboy-dmg%2Fdb.json) · [Upstream](https://github.com/kandowontu/brickboy-dmg-fpgacore) |
 | [CIFS Scripts](cifs-scripts/) | Official `cifs_mount.sh` and `cifs_umount.sh` scripts for CIFS/SMB network shares | [Inspect](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fcifs-scripts%2Fdb.json) · [Upstream](https://github.com/MiSTer-devel/Scripts_MiSTer) |
 | [CollectionLauncher](collection-launcher/) | Custom game collections with wallpaper, artwork and MGL launching, ARM app with no core | [Inspect](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fcollection-launcher%2Fdb.json) · [Upstream](https://github.com/Anime0t4ku/MiSTer-CollectionLauncher) |
 | [Diablo](diablo/) | Hybrid FPGA/ARM Diablo and Hellfire port on DevilutionX | [Inspect](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fdiablo%2Fdb.json.zip) · [Upstream](https://github.com/meathax/dbdiablo) |
@@ -35,6 +34,18 @@ outside the databases.
 | [Solarus MiSTer](solarus/) | Hybrid FPGA/ARM Solarus 2D action-RPG engine | [Inspect](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fsolarus%2Fdb.json) · [Upstream](https://github.com/gmcnaught/solarus-mister) |
 | [Sonic Mania MiSTer](sonic-mania/) | Hybrid FPGA/ARM Sonic Mania port | [Inspect](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fsonic-mania%2Fdb.json) · [Upstream](https://github.com/kimchiman52/sonic-mania-mister) |
 | [Distribution MiSTer Pinned Linux](distribution-mister-pinned-linux/) | The official distribution with Linux held on release 20260912, published under the `distribution_mister` ID | [Inspect](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fdistribution-mister-pinned-linux%2Fdb.json.zip) · [Upstream](https://github.com/MiSTer-devel/Distribution_MiSTer) |
+
+## Removed
+
+Entries whose upstream project ceased to exist. Their database URL stays
+published and valid, so an already configured Downloader keeps working, but the
+database is empty and installs nothing. Because the Downloader removes files a
+database no longer lists, a run also deletes whatever the entry used to
+install. Upstream is named without a link because it no longer resolves.
+
+| Database | Why it was removed | Links |
+| --- | --- | --- |
+| [BrickBoy DMG](brickboy-dmg/) | `kandowontu/brickboy-dmg-fpgacore` was withdrawn in September 2026 — repository and owner account both deleted with no rename redirect — and the `BrickBoy_DMG.rbf` asset the database published went with it | [Inspect](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fbrickboy-dmg%2Fdb.json) |
 
 ## Contributing
 
