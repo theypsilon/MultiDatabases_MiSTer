@@ -109,6 +109,12 @@ class Mms2GbReleaseTests(unittest.TestCase):
 
 
 class BrickBoyDmgReleaseTests(unittest.TestCase):
+    CORE_URL = (
+        "https://github.com/kandowontu2/BrickBoy_MiSTer/releases/download/"
+        "0.5.1/BrickBoy.rbf"
+    )
+    MGL_REVISION = "c" * 40
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.generator = load_generator("brickboy-dmg")
@@ -120,21 +126,41 @@ class BrickBoyDmgReleaseTests(unittest.TestCase):
             "browser_download_url": url or f"https://example.com/{name}",
         }
 
-    def test_selects_the_exact_rbf_asset(self) -> None:
-        expected = self.asset("BrickBoy_DMG.rbf")
-        release = {
-            "tag_name": "v0.2.0",
-            "assets": [self.asset("source.zip"), expected],
+    def release(self) -> dict[str, object]:
+        """A release shaped like kandowontu2/BrickBoy_MiSTer 0.5.1."""
+        return {
+            "tag_name": "0.5.1",
+            "assets": [
+                self.asset("BrickBoy.rbf", self.CORE_URL),
+                self.asset("BrickBoy_0.5.1_Other.zip"),
+            ],
         }
 
-        self.assertIs(expected, self.generator.select_rbf_asset(release))
+    def test_selects_the_exact_rbf_asset(self) -> None:
+        release = self.release()
 
-    def test_rejects_a_release_without_the_exact_rbf(self) -> None:
-        with self.assertRaisesRegex(RuntimeError, "exactly one BrickBoy_DMG"):
+        self.assertIs(
+            release["assets"][0],
+            self.generator.select_rbf_asset(release),
+        )
+
+    def test_rejects_the_removed_upstream_core_name(self) -> None:
+        """The old account's BrickBoy_DMG.rbf must not satisfy this entry."""
+        with self.assertRaisesRegex(RuntimeError, "exactly one BrickBoy.rbf"):
             self.generator.select_rbf_asset(
                 {
-                    "tag_name": "v0.3.0",
-                    "assets": [self.asset("BrickBoy_DMG_20260903.rbf")],
+                    "tag_name": "v0.2.0",
+                    "assets": [self.asset("BrickBoy_DMG.rbf")],
+                }
+            )
+
+    def test_rejects_the_identically_named_pocket_project(self) -> None:
+        """kathoc/brickboy-dmg-fpgacore v0.2.0 ships no MiSTer core."""
+        with self.assertRaisesRegex(RuntimeError, "exactly one BrickBoy.rbf"):
+            self.generator.select_rbf_asset(
+                {
+                    "tag_name": "v0.2.0",
+                    "assets": [self.asset("brickboy-dmg-pocket.zip")],
                 }
             )
 
@@ -142,13 +168,112 @@ class BrickBoyDmgReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "found 2"):
             self.generator.select_rbf_asset(
                 {
-                    "tag_name": "v0.3.0",
+                    "tag_name": "0.5.2",
                     "assets": [
-                        self.asset("BrickBoy_DMG.rbf", "https://one.example/core"),
-                        self.asset("brickboy_dmg.rbf", "https://two.example/core"),
+                        self.asset("BrickBoy.rbf", "https://one.example/core"),
+                        self.asset("brickboy.rbf", "https://two.example/core"),
                     ],
                 }
             )
+
+    def test_the_shipped_mgl_keeps_the_brickboy_dmg_identity(self) -> None:
+        mgl_path = ROOT / "brickboy-dmg" / "BrickBoy_DMG.mgl"
+
+        self.generator.validate_mgl(mgl_path.read_bytes())
+
+    def test_rejects_an_mgl_still_pointing_at_the_removed_core(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "must launch"):
+            self.generator.validate_mgl(
+                b"<mistergamedescription>\n"
+                b"    <rbf>_Custom Cores/Cores/BrickBoy_DMG</rbf>\n"
+                b'    <setname same_dir="1">BrickBoy_DMG</setname>\n'
+                b"</mistergamedescription>\n"
+            )
+
+    def test_rejects_an_mgl_that_renames_the_save_directory(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "reviewed BrickBoy_DMG setname"):
+            self.generator.validate_mgl(
+                b"<mistergamedescription>\n"
+                b"    <rbf>_Custom Cores/Cores/BrickBoy</rbf>\n"
+                b'    <setname same_dir="1">BrickBoy</setname>\n'
+                b"</mistergamedescription>\n"
+            )
+
+    def test_generates_the_database_from_the_release_asset(self) -> None:
+        core = b"core bytes"
+        mgl = (ROOT / "brickboy-dmg" / "BrickBoy_DMG.mgl").read_bytes()
+
+        def apply_tags(database, **_kwargs):
+            database["tag_dictionary"] = {"brickboy": 0}
+            for descriptions in (database["files"], database["folders"]):
+                for description in descriptions.values():
+                    description["tags"] = [0]
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "brickboy-dmg"
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "generate_db.py",
+                        "--output", str(output),
+                        "--repository", "theypsilon/MultiDatabases_MiSTer",
+                        "--timestamp", "1",
+                    ],
+                ),
+                patch.object(
+                    self.generator, "github_latest_release", return_value=self.release()
+                ),
+                patch.object(
+                    self.generator, "http_get_bytes", return_value=core
+                ),
+                patch.object(
+                    self.generator, "git_file_revision", return_value=self.MGL_REVISION
+                ),
+                patch("db_helpers.apply_standard_tags", side_effect=apply_tags),
+            ):
+                self.assertEqual(0, self.generator.main())
+
+            database = json.loads((output / "db.json").read_bytes())
+
+        self.assertEqual("MultiDatabases/brickboy-dmg", database["db_id"])
+        self.assertEqual(
+            "https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/"
+            "db/brickboy-dmg/db.json",
+            database["db_url"],
+        )
+        self.assertEqual(
+            ["Custom Cores/BrickBoy_DMG.mgl", "_Custom Cores/Cores/BrickBoy.rbf"],
+            sorted(database["files"]),
+        )
+
+        installed_core = database["files"]["_Custom Cores/Cores/BrickBoy.rbf"]
+        self.assertEqual(self.CORE_URL, installed_core["url"])
+        self.assertEqual(hashlib.md5(core).hexdigest(), installed_core["hash"])
+        self.assertEqual(len(core), installed_core["size"])
+
+        launcher = database["files"]["Custom Cores/BrickBoy_DMG.mgl"]
+        self.assertEqual(
+            "https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/"
+            f"{self.MGL_REVISION}/brickboy-dmg/BrickBoy_DMG.mgl",
+            launcher["url"],
+        )
+        self.assertEqual(hashlib.md5(mgl).hexdigest(), launcher["hash"])
+
+    def test_an_mgl_inconsistent_with_the_core_fails_the_generator(self) -> None:
+        with (
+            patch("sys.argv", ["generate_db.py"]),
+            patch.object(
+                self.generator, "github_latest_release", return_value=self.release()
+            ),
+            patch.object(self.generator, "http_get_bytes", return_value=b"core"),
+            patch.object(
+                self.generator, "git_file_revision", return_value=self.MGL_REVISION
+            ),
+            patch.object(self.generator, "MGL_SETNAME", "BrickBoy"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "reviewed BrickBoy setname"):
+                self.generator.main()
 
 
 class MisterFinGeneratorTests(unittest.TestCase):
