@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import call, patch
 
+from db_helpers import DOWNLOAD_RETRY_DELAYS_SECONDS
 from run_downloader_tests import run_downloader_tests
 
 
@@ -81,6 +83,59 @@ class RunDownloaderTestsTests(unittest.TestCase):
                     )
                 ],
                 run.call_args_list,
+            )
+
+    def test_retries_the_tester_until_a_transient_failure_clears(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            output = root / "dist"
+            tester = root / ".github" / "downloader_test.py"
+            tester.parent.mkdir()
+            tester.touch()
+            (root / "mister-dvd").mkdir()
+            database = output / "mister-dvd" / "db.json"
+            database.parent.mkdir(parents=True)
+            database.write_text(
+                json.dumps({"db_id": "MultiDatabases/mister-dvd"}), encoding="utf-8"
+            )
+
+            failure = subprocess.CalledProcessError(21, "downloader.sh")
+            with patch(
+                "run_downloader_tests.subprocess.run", side_effect=[failure, None]
+            ) as run, patch("run_downloader_tests.time.sleep") as sleep:
+                run_downloader_tests(tester, output, root=root)
+
+            attempt = tester_call(tester, output, "mister-dvd")
+            self.assertEqual([attempt, attempt], run.call_args_list)
+            self.assertEqual(
+                [call(DOWNLOAD_RETRY_DELAYS_SECONDS[0])], sleep.call_args_list
+            )
+
+    def test_keeps_failing_a_database_that_is_broken_on_every_attempt(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            output = root / "dist"
+            tester = root / ".github" / "downloader_test.py"
+            tester.parent.mkdir()
+            tester.touch()
+            (root / "mister-dvd").mkdir()
+            database = output / "mister-dvd" / "db.json"
+            database.parent.mkdir(parents=True)
+            database.write_text(
+                json.dumps({"db_id": "MultiDatabases/mister-dvd"}), encoding="utf-8"
+            )
+
+            failure = subprocess.CalledProcessError(21, "downloader.sh")
+            with patch(
+                "run_downloader_tests.subprocess.run", side_effect=failure
+            ) as run, patch("run_downloader_tests.time.sleep") as sleep:
+                with self.assertRaises(subprocess.CalledProcessError):
+                    run_downloader_tests(tester, output, root=root)
+
+            self.assertEqual(len(DOWNLOAD_RETRY_DELAYS_SECONDS) + 1, run.call_count)
+            self.assertEqual(
+                [call(delay) for delay in DOWNLOAD_RETRY_DELAYS_SECONDS],
+                sleep.call_args_list,
             )
 
     def test_skips_an_entry_that_published_no_database(self) -> None:
