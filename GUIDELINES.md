@@ -37,6 +37,11 @@
   ambiguous, and a newer release that does carry a payload being passed over.
   Record a deliberate exception as a reviewed constant in the generator instead
   of widening the selection rule.
+- Upstream identity is a reviewed value too. GitHub answers the old path of a
+  renamed or transferred repository with a redirect, so discovery must fail the
+  generator when the repository that answers is not the configured one, or a
+  change of owner reaches users unreviewed. Treat a move like any other
+  upstream change that needs review, not as a redirect to follow.
 - Treat release notes and descriptions as human-facing prose, never as a
   machine-readable interface. Do not parse them for filenames, paths,
   configuration values, versions, or selection rules. Use structured release
