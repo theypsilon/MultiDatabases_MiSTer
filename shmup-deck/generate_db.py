@@ -40,7 +40,9 @@ NAME = "Shmup Deck"
 # 2026-10-02, and from release v1.12.5 the launcher sets
 # REPO="shmupfan/shmup-deck" to match. That trips both the shared repository
 # identity check in discovery and validate_launcher below, so the generator
-# fails closed and the database stays parked on v1.12.4.
+# fails closed and the database stays parked on v1.12.4. The owner is all that
+# is left to decide: with UPSTREAM repointed, v1.12.12 passes every other
+# check and publishes the same twenty paths as the parked v1.12.4.
 #
 # Repointing this value is a human decision, not one this generator may make:
 # REPO is the repository the launcher refetches and overwrites itself from on
@@ -60,6 +62,16 @@ NAME = "Shmup Deck"
 # payload URLs for v1.12.4, four days before this launcher check was the only
 # thing that noticed. Discovery now refuses a repository that answers under
 # another name, so the move fails here for what it is.
+#
+# Failing closed keeps the new owner out of this database, not off the MiSTer.
+# The v1.12.4 launcher the parked bundle still installs reads its own REPO to
+# fetch releases/latest, which GitHub redirects to shmupfan; it then writes
+# the newest shmup_deck.sh beside itself, re-execs it, and unpacks the newest
+# ZIP over the app folder. Anyone who has opened the Scripts entry since
+# v1.12.5 is therefore already running shmupfan's code, and a downloader run
+# only puts v1.12.4 back until the launcher runs again. So the gate buys a
+# review of what this repository publishes; it does not buy users time, which
+# is an argument for deciding the owner rather than leaving it parked.
 UPSTREAM = "searchsolved/shmup-deck"
 ARCHIVE_ID = "release"
 

@@ -2809,6 +2809,10 @@ class ShmupDeckGeneratorTests(unittest.TestCase):
         "https://github.com/searchsolved/shmup-deck/releases/download/v1.4.3/"
         "shmup_deck.zip"
     )
+    # The owner upstream moved to, proposed for review and refused meanwhile.
+    # Named once so the two tests that pin the refusal are the only place it
+    # appears: accepting it stays the one-line change to UPSTREAM it should be.
+    TRANSFERRED_UPSTREAM = "shmupfan/shmup-deck"
 
     def member(self, path: str, data: bytes = b"data"):
         return self.generator.ArchiveMember(archive_path=path, path=path, data=data)
@@ -2823,14 +2827,18 @@ class ShmupDeckGeneratorTests(unittest.TestCase):
     def launcher(
         self,
         *,
-        repo: str = "searchsolved/shmup-deck",
+        repo: str = "",
         home: str = "/media/fat/Scripts/.config/shmup_deck",
         startup: str = "/media/fat/linux/user-startup.sh",
         mark: str = "# shmup_deck",
         uninstall: bool = True,
     ) -> bytes:
         # The shape of upstream's launcher: the reviewed constants, the
-        # uninstall branch, the marked boot entry and the service start.
+        # uninstall branch, the marked boot entry and the service start. REPO
+        # follows the generator's own reviewed owner rather than a second copy
+        # of it, so repointing UPSTREAM only fails the tests that exist to
+        # refuse the move, not the ones about the launcher contract.
+        repo = repo or self.generator.UPSTREAM
         removal = (
             '  [ -f "$STARTUP" ] && sed -i "/$MARK/d" "$STARTUP"\n' if uninstall else ""
         )
@@ -2989,7 +2997,7 @@ class ShmupDeckGeneratorTests(unittest.TestCase):
         accepts it rather than being followed because GitHub redirects."""
         with self.assertRaisesRegex(RuntimeError, "launcher must set REPO"):
             self.generator.validate_launcher(
-                self.launcher(repo="shmupfan/shmup-deck")
+                self.launcher(repo=self.TRANSFERRED_UPSTREAM)
             )
 
     def test_discovery_refuses_the_transferred_upstream(self) -> None:
@@ -3000,7 +3008,10 @@ class ShmupDeckGeneratorTests(unittest.TestCase):
         fails where it happens and not only in the launcher check."""
         release = {
             "tag_name": "v1.12.12",
-            "url": "https://api.github.com/repos/shmupfan/shmup-deck/releases/1",
+            "url": (
+                f"https://api.github.com/repos/{self.TRANSFERRED_UPSTREAM}"
+                "/releases/1"
+            ),
         }
         with patch.object(
             db_helpers,
