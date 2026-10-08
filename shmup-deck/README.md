@@ -3,14 +3,14 @@
 - Database ID:
   [`MultiDatabases/shmup-deck`](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fshmup-deck%2Fdb.json)
 - Upstream:
-  [`searchsolved/shmup-deck`](https://github.com/searchsolved/shmup-deck)
+  [`shmupfan/shmup-deck`](https://github.com/shmupfan/shmup-deck)
 - Database URL:
   `https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/db/shmup-deck/db.json`
 
 Shmup Deck is a flyer-wall launcher for shoot 'em ups on the MiSTer. It runs
 on the MiSTer itself: you open `http://shmupdeck.local` on your phone, tap a
 flyer, and the MiSTer loads that game through its own `/dev/MiSTer_cmd`
-interface. It covers 178 arcade shooters across Toaplan, Cave, CPS1/CPS2,
+interface. It covers 317 arcade shooters across Toaplan, Cave, CPS1/CPS2,
 PGM, Psikyo, Raizing, Konami, Irem, NMK, Taito F3, Seta, ST-V, Neo Geo and
 more, shows only the games actually installed on your SD card or USB drives,
 keeps shared favourites and play statistics on the MiSTer, and has a checklist
@@ -96,7 +96,7 @@ are required either. Shmup Deck contains no ROMs, MRAs or cores: it launches
 the arcade MRAs, ROM zips and cores already on your MiSTer, in any folder under
 `_Arcade` or another top-level `_` folder on the SD card or a USB drive, and
 Neo Geo games from `games/NeoGeo` through the Neo Geo core. Upstream's
-[ROMS.md](https://github.com/searchsolved/shmup-deck/blob/main/ROMS.md) lists
+[ROMS.md](https://github.com/shmupfan/shmup-deck/blob/main/ROMS.md) lists
 every supported game with its core and ROM zips, and
 `http://shmupdeck.local/check.html` checks them against your SD card.
 

@@ -2809,10 +2809,10 @@ class ShmupDeckGeneratorTests(unittest.TestCase):
         "https://github.com/searchsolved/shmup-deck/releases/download/v1.4.3/"
         "shmup_deck.zip"
     )
-    # The owner upstream moved to, proposed for review and refused meanwhile.
-    # Named once so the two tests that pin the refusal are the only place it
-    # appears: accepting it stays the one-line change to UPSTREAM it should be.
-    TRANSFERRED_UPSTREAM = "shmupfan/shmup-deck"
+    # The owner this entry tracked until upstream was transferred, and which
+    # the reviewed owner replaced on pull request #18. The tests below use it
+    # as the other repository: a move back needs its own review like any other.
+    FORMER_UPSTREAM = "searchsolved/shmup-deck"
 
     def member(self, path: str, data: bytes = b"data"):
         return self.generator.ArchiveMember(archive_path=path, path=path, data=data)
@@ -2836,8 +2836,8 @@ class ShmupDeckGeneratorTests(unittest.TestCase):
         # The shape of upstream's launcher: the reviewed constants, the
         # uninstall branch, the marked boot entry and the service start. REPO
         # follows the generator's own reviewed owner rather than a second copy
-        # of it, so repointing UPSTREAM only fails the tests that exist to
-        # refuse the move, not the ones about the launcher contract.
+        # of it, so reviewing that owner again stays a one-line change to
+        # UPSTREAM and leaves the tests about the launcher contract alone.
         repo = repo or self.generator.UPSTREAM
         removal = (
             '  [ -f "$STARTUP" ] && sed -i "/$MARK/d" "$STARTUP"\n' if uninstall else ""
@@ -2990,33 +2990,41 @@ class ShmupDeckGeneratorTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "launcher must set"):
                     self.generator.validate_launcher(self.launcher(**overrides))
 
-    def test_rejects_the_transferred_upstream_owner(self) -> None:
+    def test_pins_the_reviewed_upstream_owner(self) -> None:
         """Upstream was transferred to the shmupfan organization and the v1.12.5
         launcher self-updates from it. Whose code the launcher replaces itself
-        with is a reviewed value, so the move fails the generator until a human
-        accepts it rather than being followed because GitHub redirects."""
+        with is a reviewed value, so the move failed the generator instead of
+        being followed because GitHub redirects, until the repository owner
+        accepted it on pull request #18. The accepted owner is pinned here, and
+        the launcher check still refuses any other -- the owner this entry
+        tracked before it included."""
+        self.assertEqual("shmupfan/shmup-deck", self.generator.UPSTREAM)
         with self.assertRaisesRegex(RuntimeError, "launcher must set REPO"):
-            self.generator.validate_launcher(
-                self.launcher(repo=self.TRANSFERRED_UPSTREAM)
-            )
+            self.generator.validate_launcher(self.launcher(repo=self.FORMER_UPSTREAM))
 
-    def test_discovery_refuses_the_transferred_upstream(self) -> None:
-        """The transfer is invisible to discovery on its own: GitHub redirects
+    def test_discovery_holds_the_reviewed_upstream_to_its_name(self) -> None:
+        """A transfer leaves no trace in discovery on its own: GitHub redirects
         the old path to the same repository, and that is how the bundle
-        published on 2026-10-02 came to carry shmupfan payload URLs. The shared
-        identity check now refuses it before any asset is fetched, so the move
-        fails where it happens and not only in the launcher check."""
-        release = {
-            "tag_name": "v1.12.12",
-            "url": (
-                f"https://api.github.com/repos/{self.TRANSFERRED_UPSTREAM}"
-                "/releases/1"
-            ),
-        }
+        published on 2026-10-02 came to carry shmupfan payload URLs before
+        anything noticed. Accepting shmupfan did not spend that check -- it now
+        pins the reviewed owner, so the next rename or transfer fails before
+        any asset is fetched, the same way this one did."""
+
+        def answer(repository: str) -> bytes:
+            release = {
+                "tag_name": "v1.12.12",
+                "url": f"https://api.github.com/repos/{repository}/releases/1",
+            }
+            return json.dumps(release).encode("utf-8")
+
         with patch.object(
-            db_helpers,
-            "http_get_bytes",
-            return_value=json.dumps(release).encode("utf-8"),
+            db_helpers, "http_get_bytes", return_value=answer(self.generator.UPSTREAM)
+        ):
+            release = self.generator.github_latest_release(self.generator.UPSTREAM)
+        self.assertEqual("v1.12.12", release["tag_name"])
+
+        with patch.object(
+            db_helpers, "http_get_bytes", return_value=answer(self.FORMER_UPSTREAM)
         ):
             with self.assertRaisesRegex(RuntimeError, "renamed or transferred"):
                 self.generator.github_latest_release(self.generator.UPSTREAM)
