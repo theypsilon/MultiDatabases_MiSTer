@@ -32,6 +32,31 @@ from db_helpers import (  # noqa: E402
 
 FOLDER = "shmup-deck"
 NAME = "Shmup Deck"
+
+# Upstream changed hands and this constant deliberately has not followed it
+# yet (pull request #16, 2026-10-07, awaiting review).
+# The repository this entry has always tracked, searchsolved/shmup-deck,
+# was transferred to a newly created organization, shmupfan/shmup-deck, on
+# 2026-10-02, and from release v1.12.5 the launcher sets
+# REPO="shmupfan/shmup-deck" to match. That trips validate_launcher below, so
+# the generator fails closed and the database stays parked on v1.12.4.
+#
+# Repointing this value is a human decision, not one this generator may make:
+# REPO is the repository the launcher refetches and overwrites itself from on
+# every run, so it decides whose code the Scripts menu executes and whose code
+# user-startup.sh runs at every boot. GitHub metadata shows continuity -- the
+# same repository id 1370342380 and creation date, and every commit and
+# release through v1.12.11 still authored by searchsolved -- but an
+# organization can grant push access to accounts a personal account cannot,
+# and shmupfan publishes no member list, so who may ship that launcher is no
+# longer publicly auditable. Accepting the move is a review of the project's
+# distribution identity; until it happens, a loud failure is the correct
+# outcome and this entry keeps serving the last reviewed release.
+#
+# A transfer leaves no trace in discovery: the API 301-redirects the old path
+# to the same repository, so github_latest_release below followed it in
+# silence and the bundle published on 2026-10-02 already carries shmupfan
+# payload URLs for v1.12.4. Only this launcher check noticed the move at all.
 UPSTREAM = "searchsolved/shmup-deck"
 ARCHIVE_ID = "release"
 

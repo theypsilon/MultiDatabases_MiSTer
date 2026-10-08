@@ -2980,6 +2980,16 @@ class ShmupDeckGeneratorTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "launcher must set"):
                     self.generator.validate_launcher(self.launcher(**overrides))
 
+    def test_rejects_the_transferred_upstream_owner(self) -> None:
+        """Upstream was transferred to the shmupfan organization and the v1.12.5
+        launcher self-updates from it. Whose code the launcher replaces itself
+        with is a reviewed value, so the move fails the generator until a human
+        accepts it rather than being followed because GitHub redirects."""
+        with self.assertRaisesRegex(RuntimeError, "launcher must set REPO"):
+            self.generator.validate_launcher(
+                self.launcher(repo="shmupfan/shmup-deck")
+            )
+
     def test_rejects_a_launcher_that_cannot_uninstall_its_boot_entry(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "on uninstall"):
             self.generator.validate_launcher(self.launcher(uninstall=False))
