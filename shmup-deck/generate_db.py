@@ -33,34 +33,37 @@ from db_helpers import (  # noqa: E402
 FOLDER = "shmup-deck"
 NAME = "Shmup Deck"
 
-# Upstream changed hands and this constant deliberately has not followed it
-# yet (proposed on pull request #16, still awaiting review on 2026-10-08).
-# The repository this entry has always tracked, searchsolved/shmup-deck,
-# was transferred to a newly created organization, shmupfan/shmup-deck, on
-# 2026-10-02, and from release v1.12.5 the launcher sets
-# REPO="shmupfan/shmup-deck" to match. That trips both the shared repository
-# identity check in discovery and validate_launcher below, so the generator
-# fails closed and the database stays parked on v1.12.4.
+# Reviewed upstream owner. This entry tracked searchsolved/shmup-deck until
+# that repository was transferred to a newly created organization,
+# shmupfan/shmup-deck, on 2026-10-02; from release v1.12.5 the launcher sets
+# REPO="shmupfan/shmup-deck" to match. The move is a reviewed value, not a
+# redirect to follow, so the generator failed closed and the database stayed
+# parked on v1.12.4 until the repository owner accepted the new owner on pull
+# request #18 on 2026-10-08. This constant is that decision.
 #
-# Repointing this value is a human decision, not one this generator may make:
-# REPO is the repository the launcher refetches and overwrites itself from on
-# every run, so it decides whose code the Scripts menu executes and whose code
-# user-startup.sh runs at every boot. GitHub metadata shows continuity -- the
-# same repository id 1370342380 and creation date, and every commit and
-# release through v1.12.12 still authored by searchsolved -- but an
-# organization can grant push access to accounts a personal account cannot,
-# and shmupfan publishes no member list, so who may ship that launcher is no
-# longer publicly auditable. Accepting the move is a review of the project's
-# distribution identity; until it happens, a loud failure is the correct
-# outcome and this entry keeps serving the last reviewed release.
+# Why it needed a human at all: REPO is the repository the launcher refetches
+# and overwrites itself from on every run, so it decides whose code the
+# Scripts menu executes and whose code user-startup.sh runs at every boot.
+# What the review had in front of it: GitHub metadata shows continuity -- the
+# same repository id 1370342380 and creation date 2026-09-14, and every commit
+# and release through v1.12.12 still authored by searchsolved -- and v1.12.12
+# publishes the same twenty paths, the same direct file and the same folders
+# as the parked v1.12.4, so accepting it is a version bump and not a layout
+# change. What it does not buy: an organization can grant push access to
+# accounts a personal account cannot, and shmupfan publishes no member list,
+# so who may ship that launcher is not publicly auditable. That is accepted
+# here, not resolved.
 #
 # A transfer used to leave no trace in discovery: the API 301-redirects the
 # old path to the same repository, so github_latest_release below followed it
 # in silence and the bundle published on 2026-10-02 already carries shmupfan
-# payload URLs for v1.12.4, four days before this launcher check was the only
+# payload URLs for v1.12.4, four days before validate_launcher was the only
 # thing that noticed. Discovery now refuses a repository that answers under
-# another name, so the move fails here for what it is.
-UPSTREAM = "searchsolved/shmup-deck"
+# another name, which is why the move surfaced as a move. That gate is not
+# spent: it now pins this value, so the next rename or transfer -- including a
+# move back to searchsolved -- fails the generator in turn and needs its own
+# review.
+UPSTREAM = "shmupfan/shmup-deck"
 ARCHIVE_ID = "release"
 
 # Every release ships exactly these two assets, under these names: the
