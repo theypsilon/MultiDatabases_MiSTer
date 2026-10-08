@@ -17,6 +17,8 @@ from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
 
+import db_helpers
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -2989,6 +2991,24 @@ class ShmupDeckGeneratorTests(unittest.TestCase):
             self.generator.validate_launcher(
                 self.launcher(repo="shmupfan/shmup-deck")
             )
+
+    def test_discovery_refuses_the_transferred_upstream(self) -> None:
+        """The transfer is invisible to discovery on its own: GitHub redirects
+        the old path to the same repository, and that is how the bundle
+        published on 2026-10-02 came to carry shmupfan payload URLs. The shared
+        identity check now refuses it before any asset is fetched, so the move
+        fails where it happens and not only in the launcher check."""
+        release = {
+            "tag_name": "v1.12.12",
+            "url": "https://api.github.com/repos/shmupfan/shmup-deck/releases/1",
+        }
+        with patch.object(
+            db_helpers,
+            "http_get_bytes",
+            return_value=json.dumps(release).encode("utf-8"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "renamed or transferred"):
+                self.generator.github_latest_release(self.generator.UPSTREAM)
 
     def test_rejects_a_launcher_that_cannot_uninstall_its_boot_entry(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "on uninstall"):

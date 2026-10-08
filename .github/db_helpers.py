@@ -50,6 +50,9 @@ INVALID_EXACT_PATHS = {
 INVALID_ROOT_FOLDERS = {"linux", "saves", "savestates", "screenshots", "downloader"}
 MD5_RE = re.compile(r"^[0-9a-f]{32}$")
 GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+GITHUB_API_REPOSITORY_RE = re.compile(
+    r"^https://api\.github\.com/repos/([^/?#]+/[^/?#]+)(?:[/?#]|$)"
+)
 DOWNLOAD_RETRY_DELAYS_SECONDS = (1, 2, 4)
 RETRYABLE_HTTP_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
 
@@ -237,10 +240,54 @@ def http_get_bytes(url: str, *, accept: str = "application/octet-stream") -> byt
     raise AssertionError("download retry loop ended unexpectedly")
 
 
+def github_repository_of(value: Any) -> str | None:
+    """The `owner/name` a GitHub API answer reports for itself, if it does.
+
+    Releases, commits and repositories all carry their own canonical API URL,
+    which names the repository the object really belongs to, whatever path was
+    asked for. A list is judged by its first element, and an answer that names
+    no repository at all -- an empty list, an error document -- returns None
+    because there is nothing to compare; such an answer carries no payload to
+    publish either.
+    """
+    item = value[0] if isinstance(value, list) and value else value
+    if not isinstance(item, Mapping):
+        return None
+    match = GITHUB_API_REPOSITORY_RE.match(str(item.get("url") or ""))
+    return match.group(1) if match else None
+
+
+def validate_github_repository(repository: str, value: Any) -> None:
+    """Refuse a GitHub answer that belongs to another repository.
+
+    GitHub answers the old path of a renamed or transferred repository with a
+    redirect to its numeric id, which urllib follows, so discovery would
+    resolve a change of upstream owner in silence and go on to publish payload
+    URLs under the new owner. Upstream identity is a reviewed value, so a move
+    fails the generator here instead of being followed. Owner and name are
+    case-insensitive on GitHub, so only another repository trips this, not
+    another spelling of the same one.
+    """
+    resolved = github_repository_of(value)
+    if resolved is not None and resolved.casefold() != repository.casefold():
+        raise RuntimeError(
+            f"GitHub answered for {resolved} instead of {repository}: the "
+            "upstream repository was renamed or transferred, which is a "
+            "reviewed value, so the move needs review instead of being "
+            "followed"
+        )
+
+
 def github_json(url: str) -> Any:
-    return json.loads(
+    value = json.loads(
         http_get_bytes(url, accept="application/vnd.github+json").decode("utf-8")
     )
+    # Every API lookup names the repository it asks about, so this is the one
+    # place that sees both the configured repository and the one that answered.
+    requested = GITHUB_API_REPOSITORY_RE.match(url)
+    if requested is not None:
+        validate_github_repository(requested.group(1), value)
+    return value
 
 
 def github_latest_release(repository: str) -> dict[str, Any]:

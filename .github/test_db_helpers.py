@@ -20,7 +20,11 @@ from db_helpers import (
     database_id,
     database_url,
     expand_shell_variables,
+    github_commit_sha,
+    github_json,
+    github_latest_release,
     github_raw_url,
+    github_releases,
     http_get_bytes,
     read_scripts_app,
     release_tag,
@@ -222,6 +226,68 @@ class PayloadUrlTests(unittest.TestCase):
             with self.subTest(url=url):
                 with self.assertRaisesRegex(RuntimeError, "commit|concrete"):
                     validate_payload_url(url)
+
+
+class GithubRepositoryIdentityTests(unittest.TestCase):
+    LATEST = "https://api.github.com/repos/example/project/releases/latest"
+    RELEASES = "https://api.github.com/repos/example/project/releases?per_page=100"
+
+    def answer(self, payload: object) -> object:
+        return patch.object(
+            db_helpers,
+            "http_get_bytes",
+            return_value=json.dumps(payload).encode("utf-8"),
+        )
+
+    def release(self, repository: str) -> dict:
+        return {
+            "tag_name": "v1.0.0",
+            "url": f"https://api.github.com/repos/{repository}/releases/1",
+        }
+
+    def test_accepts_an_answer_from_the_requested_repository(self) -> None:
+        with self.answer(self.release("example/project")):
+            release = github_latest_release("example/project")
+        self.assertEqual("v1.0.0", release_tag(release))
+
+    def test_accepts_another_spelling_of_the_same_repository(self) -> None:
+        # Owner and name are case-insensitive on GitHub, so a different
+        # spelling is the same repository, not a move.
+        with self.answer(self.release("Example/Project")):
+            release = github_latest_release("example/project")
+        self.assertEqual("v1.0.0", release_tag(release))
+
+    def test_refuses_a_renamed_or_transferred_repository(self) -> None:
+        # GitHub redirects the old path to the repository's numeric id, so the
+        # answer is the only thing that still names the new owner.
+        with self.answer(self.release("newowner/project")):
+            with self.assertRaisesRegex(RuntimeError, "renamed or transferred"):
+                github_latest_release("example/project")
+
+    def test_refuses_a_transferred_repository_in_a_release_list(self) -> None:
+        with self.answer([self.release("newowner/project")]):
+            with self.assertRaisesRegex(RuntimeError, "renamed or transferred"):
+                github_releases("example/project")
+
+    def test_refuses_a_transferred_repository_behind_a_commit_lookup(self) -> None:
+        commit = {
+            "sha": "0123456789abcdef0123456789abcdef01234567",
+            "url": (
+                "https://api.github.com/repos/newowner/project/commits/"
+                "0123456789abcdef0123456789abcdef01234567"
+            ),
+        }
+        with self.answer(commit):
+            with self.assertRaisesRegex(RuntimeError, "renamed or transferred"):
+                github_commit_sha("example/project", "main")
+
+    def test_leaves_an_answer_that_names_no_repository_alone(self) -> None:
+        # An empty list or an error document names nothing to compare, and
+        # carries nothing to publish either; the callers reject it themselves.
+        for payload in ([], {"message": "Not Found"}):
+            with self.subTest(payload=payload):
+                with self.answer(payload):
+                    self.assertEqual(payload, github_json(self.RELEASES))
 
 
 class HttpGetBytesTests(unittest.TestCase):
