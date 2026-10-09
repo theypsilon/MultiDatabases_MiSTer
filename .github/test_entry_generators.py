@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -15,7 +16,7 @@ import zipfile
 import zlib
 from pathlib import Path
 from types import ModuleType
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import db_helpers
 
@@ -1904,6 +1905,126 @@ class MisterDvdGeneratorTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "unsupported directory"):
                 self.generator.capture_installed_files(media_fat)
 
+    IMAGE_ID = f"sha256:{'e' * 64}"
+
+    def test_every_registry_is_asked_for_the_pinned_digest(self) -> None:
+        digest, references = self.generator.sandbox_image_references()
+
+        self.assertTrue(self.generator.SANDBOX_IMAGE.endswith(f"@{digest}"))
+        self.assertEqual(f"docker.io/library/python@{digest}", references[0])
+        self.assertEqual(
+            [
+                f"{repository}@{digest}"
+                for repository in self.generator.SANDBOX_IMAGE_REPOSITORIES
+            ],
+            list(references),
+        )
+
+    def test_rejects_a_sandbox_image_that_is_not_pinned_to_a_digest(self) -> None:
+        with patch.object(
+            self.generator, "SANDBOX_IMAGE", "python:3.12-slim-bookworm"
+        ):
+            with self.assertRaisesRegex(RuntimeError, "not pinned to a digest"):
+                self.generator.sandbox_image_references()
+
+    def test_pull_falls_back_to_a_mirror_of_the_same_digest_without_waiting(
+        self,
+    ) -> None:
+        digest, references = self.generator.sandbox_image_references()
+        asked = []
+
+        def simulate_pull(reference, pinned):
+            asked.append(reference)
+            self.assertEqual(digest, pinned)
+            if reference == references[0]:
+                raise subprocess.CalledProcessError(1, "docker pull")
+            return self.IMAGE_ID
+
+        with (
+            patch.object(self.generator, "pulled_image_id", side_effect=simulate_pull),
+            patch.object(self.generator.time, "sleep") as sleep,
+        ):
+            image_id = self.generator.sandbox_image_id()
+
+        self.assertEqual(self.IMAGE_ID, image_id)
+        self.assertEqual(list(references[:2]), asked)
+        sleep.assert_not_called()
+
+    def test_pull_retries_every_registry_before_failing_the_sandbox(self) -> None:
+        _, references = self.generator.sandbox_image_references()
+        refusal = subprocess.CalledProcessError(1, "docker pull")
+
+        with (
+            patch.object(
+                self.generator, "pulled_image_id", side_effect=refusal
+            ) as pull,
+            patch.object(self.generator.time, "sleep") as sleep,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "from any of"):
+                self.generator.sandbox_image_id()
+
+        attempts = len(db_helpers.DOWNLOAD_RETRY_DELAYS_SECONDS) + 1
+        self.assertEqual(attempts * len(references), pull.call_count)
+        self.assertEqual(
+            [call(delay) for delay in db_helpers.DOWNLOAD_RETRY_DELAYS_SECONDS],
+            sleep.call_args_list,
+        )
+
+    def simulate_docker_pull(self, image):
+        def simulate(command, **kwargs):
+            if command[:2] == ["docker", "pull"]:
+                return subprocess.CompletedProcess(command, 0)
+            self.assertEqual(["docker", "image", "inspect"], command[:3])
+            return subprocess.CompletedProcess(
+                command, 0, stdout=json.dumps([image])
+            )
+
+        return simulate
+
+    def test_pull_returns_the_local_id_of_the_pinned_image(self) -> None:
+        digest, references = self.generator.sandbox_image_references()
+        mirror = references[1]
+        simulate = self.simulate_docker_pull(
+            {"Id": self.IMAGE_ID, "RepoDigests": [mirror]}
+        )
+
+        with patch.object(
+            self.generator.subprocess, "run", side_effect=simulate
+        ) as run:
+            image_id = self.generator.pulled_image_id(mirror, digest)
+
+        self.assertEqual(self.IMAGE_ID, image_id)
+        self.assertEqual(
+            ["docker", "pull", "--platform", "linux/amd64", mirror],
+            run.call_args_list[0].args[0],
+        )
+
+    def test_pull_rejects_an_image_that_does_not_carry_the_pinned_digest(self) -> None:
+        digest, references = self.generator.sandbox_image_references()
+        simulate = self.simulate_docker_pull(
+            {
+                "Id": self.IMAGE_ID,
+                "RepoDigests": [f"mirror.gcr.io/library/python@sha256:{'c' * 64}"],
+            }
+        )
+
+        with patch.object(self.generator.subprocess, "run", side_effect=simulate):
+            with self.assertRaisesRegex(RuntimeError, "does not carry"):
+                self.generator.pulled_image_id(references[1], digest)
+
+    def test_published_payload_does_not_depend_on_the_registry(self) -> None:
+        digest, _ = self.generator.sandbox_image_references()
+        source = json.loads(
+            self.generator.source_metadata(
+                "https://example.com/install_dvdcss.sh", self.installer(), ()
+            )
+        )
+
+        # The provenance metadata feeds runtime_digest, so it names the pinned
+        # image and never the registry that happened to serve it.
+        self.assertEqual(self.generator.SANDBOX_IMAGE, source["sandbox_image"])
+        self.assertIn(digest, source["sandbox_image"])
+
     def test_runs_installer_in_a_locked_down_docker_sandbox(self) -> None:
         command_seen = []
 
@@ -1943,8 +2064,13 @@ class MisterDvdGeneratorTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-        with patch.object(
-            self.generator.subprocess, "run", side_effect=simulate_docker
+        with (
+            patch.object(
+                self.generator.subprocess, "run", side_effect=simulate_docker
+            ),
+            patch.object(
+                self.generator, "sandbox_image_id", return_value=self.IMAGE_ID
+            ),
         ):
             captured, downloads = self.generator.run_installer(self.installer())
 
@@ -1956,7 +2082,10 @@ class MisterDvdGeneratorTests(unittest.TestCase):
         self.assertIn("--read-only", command_seen)
         self.assertIn("--cap-drop=ALL", command_seen)
         self.assertIn("linux/amd64", command_seen)
-        self.assertIn(self.generator.SANDBOX_IMAGE, command_seen)
+        # The container runs the image whose digest was verified on the way in,
+        # so no registry reference is resolved a second time here.
+        self.assertIn(self.IMAGE_ID, command_seen)
+        self.assertNotIn(self.generator.SANDBOX_IMAGE, command_seen)
         self.assertNotIn("GITHUB_TOKEN", " ".join(command_seen))
 
     def test_prepared_payload_round_trip_keeps_only_installable_release_files(
