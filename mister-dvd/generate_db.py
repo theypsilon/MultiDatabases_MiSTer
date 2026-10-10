@@ -12,6 +12,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.parse
 import uuid
 from pathlib import Path
@@ -21,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".github"))
 
 from db_helpers import (  # noqa: E402
+    DOWNLOAD_RETRY_DELAYS_SECONDS,
     ArchiveMember,
     DirectFile,
     build_selective_archive_database,
@@ -63,6 +65,23 @@ SANDBOX_IMAGE = (
     "python:3.12-slim-bookworm@"
     "sha256:4427763a1ba36f5aa8f656a03e5d00f3b8d61f5dd950c73df6c14f8c7640f8ab"
 )
+# The pinned manifest digest is the whole identity of the sandbox: `docker
+# pull` rejects content that does not hash to the digest in the reference, so
+# every registry able to serve that digest serves the same image. Docker Hub
+# meters anonymous pulls per address and a shared runner address does run out
+# of them, which is what sank the sandbox twice in one minute in run
+# 37992392019, so the pull falls back to Google's Docker Hub pull-through
+# cache. Whichever registry answers, the source metadata still records
+# SANDBOX_IMAGE and the container runs the pulled image by its local ID, so a
+# mirror can change neither what ran nor what was published.
+SANDBOX_IMAGE_REPOSITORIES = (
+    "docker.io/library/python",
+    "mirror.gcr.io/library/python",
+)
+IMAGE_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
+SANDBOX_PLATFORM = "linux/amd64"
+SANDBOX_PULL_TIMEOUT_SECONDS = 300
+SANDBOX_INSPECT_TIMEOUT_SECONDS = 60
 SANDBOX_TIMEOUT_SECONDS = 600
 
 # The slim Python image has every utility used by the current installer except a
@@ -305,9 +324,93 @@ def read_fetch_log(audit_directory: Path) -> tuple[dict[str, Any], ...]:
     return tuple(records)
 
 
+def sandbox_image_references() -> tuple[str, tuple[str, ...]]:
+    digest = SANDBOX_IMAGE.partition("@")[2]
+    if not IMAGE_DIGEST_RE.fullmatch(digest):
+        raise RuntimeError(
+            f"MiSTer DVD sandbox image is not pinned to a digest: {SANDBOX_IMAGE}"
+        )
+    return digest, tuple(
+        f"{repository}@{digest}" for repository in SANDBOX_IMAGE_REPOSITORIES
+    )
+
+
+def pulled_image_id(reference: str, digest: str) -> str:
+    subprocess.run(
+        ["docker", "pull", "--platform", SANDBOX_PLATFORM, reference],
+        check=True,
+        timeout=SANDBOX_PULL_TIMEOUT_SECONDS,
+    )
+    inspected = subprocess.run(
+        ["docker", "image", "inspect", reference],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=SANDBOX_INSPECT_TIMEOUT_SECONDS,
+    )
+    try:
+        image = json.loads(inspected.stdout)[0]
+        image_id = str(image["Id"])
+        repository_digests = [str(value) for value in image["RepoDigests"]]
+    except (json.JSONDecodeError, LookupError, TypeError) as exc:
+        raise RuntimeError(
+            f"Unable to inspect the pulled MiSTer DVD sandbox image: {reference}"
+        ) from exc
+    if not any(value.endswith(f"@{digest}") for value in repository_digests):
+        raise RuntimeError(f"Pulled sandbox image does not carry {digest}: {reference}")
+    if not IMAGE_DIGEST_RE.fullmatch(image_id):
+        raise RuntimeError(f"Pulled sandbox image has no usable ID: {reference}")
+    return image_id
+
+
+def sandbox_image_id() -> str:
+    digest, references = sandbox_image_references()
+    attempts = len(DOWNLOAD_RETRY_DELAYS_SECONDS) + 1
+    for attempt in range(attempts):
+        for reference in references:
+            try:
+                image_id = pulled_image_id(reference, digest)
+            except FileNotFoundError as exc:
+                raise RuntimeError(
+                    "Docker is required to run the MiSTer DVD installer sandbox"
+                ) from exc
+            except (
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,
+                RuntimeError,
+            ) as exc:
+                print(
+                    f"Unable to pull the sandbox image from {reference}: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                continue
+            print(f"Sandbox image {digest} pulled from {reference}", flush=True)
+            return image_id
+        if attempt < attempts - 1:
+            delay = DOWNLOAD_RETRY_DELAYS_SECONDS[attempt]
+            print(
+                f"No registry served the sandbox image; retrying in {delay}s "
+                f"(attempt {attempt + 2}/{attempts})",
+                file=sys.stderr,
+                flush=True,
+            )
+            time.sleep(delay)
+
+    raise RuntimeError(
+        f"Unable to pull the MiSTer DVD sandbox image {digest} from any of: "
+        + ", ".join(references)
+    )
+
+
 def run_installer(
     installer_data: bytes,
 ) -> tuple[tuple[CapturedFile, ...], tuple[dict[str, Any], ...]]:
+    # The image is fetched before the sandbox is laid out, so a registry that
+    # cannot serve it is reported as the download failure it is and never
+    # confused with the installer itself failing, which still fails at once.
+    image_id = sandbox_image_id()
+
     with tempfile.TemporaryDirectory(prefix="mister-dvd-sandbox-") as temporary:
         sandbox = Path(temporary)
         media_fat = sandbox / "media" / "fat"
@@ -331,7 +434,7 @@ def run_installer(
             "--name",
             container_name,
             "--platform",
-            "linux/amd64",
+            SANDBOX_PLATFORM,
             "--user",
             user,
             "--read-only",
@@ -362,7 +465,7 @@ def run_installer(
                 f"type=bind,src={fetch_command.resolve()},"
                 "dst=/usr/local/bin/curl,readonly"
             ),
-            SANDBOX_IMAGE,
+            image_id,
             "/bin/bash",
             f"/media/fat/{INSTALLER_PATH}",
         ]
