@@ -373,6 +373,101 @@ class MisterFinGeneratorTests(unittest.TestCase):
         self.assertIsNone(pattern.fullmatch("misterfin-source.zip"))
 
 
+class MisterEmbyGeneratorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("misteremby")
+
+    def member(self, path: str):
+        return self.generator.ArchiveMember(
+            archive_path=path,
+            path=path,
+            data=b"data",
+        )
+
+    def release_members(self, *extra: str):
+        return [
+            self.member(path)
+            for path in (
+                "misteremby/MiSTerEmby.sh",
+                "misteremby/emby.conf.example",
+                "misteremby/font/font.desc",
+                "misteremby/misteremby-arm",
+                "misteremby/mplayer-arm",
+                "misteremby/sfx/nav.wav",
+                "misteremby/subfont/font.desc",
+                *extra,
+            )
+        ]
+
+    def test_moves_only_the_launcher_into_the_scripts_menu(self) -> None:
+        destination_for = self.generator.destination_for
+        self.assertEqual(
+            "Scripts/MiSTerEmby.sh", destination_for("misteremby/MiSTerEmby.sh")
+        )
+        self.assertEqual(
+            "misteremby/misteremby-arm", destination_for("misteremby/misteremby-arm")
+        )
+        self.assertEqual(
+            "misteremby/sfx/nav.wav", destination_for("misteremby/sfx/nav.wav")
+        )
+
+    def test_installs_every_published_file(self) -> None:
+        members = self.release_members()
+        selected = self.generator.selected_files(list(reversed(members)))
+
+        self.assertEqual(len(members), len(selected))
+        self.assertEqual(
+            [
+                "Scripts/MiSTerEmby.sh",
+                "misteremby/emby.conf.example",
+                "misteremby/font/font.desc",
+                "misteremby/misteremby-arm",
+                "misteremby/mplayer-arm",
+                "misteremby/sfx/nav.wav",
+                "misteremby/subfont/font.desc",
+            ],
+            [destination for destination, _ in selected],
+        )
+
+    def test_rejects_files_outside_the_app_folder(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "outside misteremby/"):
+            self.generator.selected_files(self.release_members("docs/README.md"))
+
+    def test_rejects_packaged_user_files(self) -> None:
+        # Installing any of them would overwrite the user's server address
+        # or saved sign-in on every downloader run.
+        for user_file in (
+            "misteremby/emby.conf",
+            "misteremby/token.conf",
+            "misteremby/device.conf",
+        ):
+            with self.subTest(user_file=user_file):
+                with self.assertRaisesRegex(RuntimeError, "server settings and sign-in"):
+                    self.generator.selected_files(self.release_members(user_file))
+
+    def test_rejects_a_release_missing_the_player(self) -> None:
+        members = [
+            member
+            for member in self.release_members()
+            if member.path != "misteremby/mplayer-arm"
+        ]
+        with self.assertRaisesRegex(RuntimeError, "misteremby/mplayer-arm"):
+            self.generator.selected_files(members)
+
+    def test_pins_the_zipped_database_url(self) -> None:
+        source = (ROOT / "misteremby" / "generate_db.py").read_text(encoding="utf-8")
+        self.assertIn("compressed_db_url=True", source)
+
+    def test_asset_pattern_accepts_two_and_three_part_versions(self) -> None:
+        pattern = self.generator.ASSET_PATTERN
+        self.assertEqual("v1.1", pattern.fullmatch("misteremby-v1.1.zip").group(1))
+        self.assertEqual(
+            "v1.1.0", pattern.fullmatch("misteremby-v1.1.0.zip").group(1)
+        )
+        self.assertIsNone(pattern.fullmatch("misteremby-source.zip"))
+
+
 class MisterVisionGeneratorTests(unittest.TestCase):
     ARM_BINARY = (
         b"\x7fELF\x01\x01\x01" + bytes(9) + b"\x02\x00\x28\x00" + bytes(600_000)
