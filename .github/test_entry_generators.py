@@ -3367,5 +3367,139 @@ class CifsScriptsGeneratorTests(unittest.TestCase):
                 self.generator.script_file("cifs_mount.sh")
 
 
+
+class Imsai8080GeneratorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.generator = load_generator('imsai8080')
+
+    def release(self, date='20261028', prerelease=True):
+        g = self.generator
+        name = f'IMSAI8080-MiSTer-Downloader-{date}.zip'
+        return {'tag_name':f'mister-downloader-{date}','prerelease':prerelease,
+                'draft':False,'assets':[{'name':name,'browser_download_url':
+                f'https://github.com/{g.UPSTREAM}/releases/download/mister-downloader-{date}/{name}'}]}
+
+    def payload(self, change=None):
+        g = self.generator
+        files = {'SD/'+p:b'notice' for p in g.REQUIRED}
+        files['manifest.json']=b'{}'
+        files['SD/'+g.CORE]=b'R'*1_000_001
+        files['SD/'+g.DEMO]=b'\x76'
+        files['SD/'+g.LAUNCHER]=(
+            f'<mistergamedescription><rbf>{g.CORE[:-4]}</rbf>'
+            f'<file type="f" index="0" path="/media/fat/{g.DEMO}"/>'
+            '<setname same_dir="1">IMSAI8080_Downloader</setname></mistergamedescription>').encode()
+        if change: change(files)
+        buffer=io.BytesIO()
+        with zipfile.ZipFile(buffer,'w') as archive:
+            for name,data in files.items(): archive.writestr(name,data)
+        data=buffer.getvalue()
+        asset=self.release()['assets'][0]
+        asset.update(size=len(data),digest='sha256:'+hashlib.sha256(data).hexdigest())
+        return asset,data
+
+    def test_ignores_mega65_and_unreviewed_prereleases(self):
+        g=self.generator
+        r=self.release()
+        self.assertEqual(g.select_release([
+            {'tag_name':'mega65-20261030','assets':[]},self.release('20261029'),r])[0],r)
+
+    def test_newest_stable_missing_asset_fails_instead_of_freezing(self):
+        r=self.release('20261029',False); r['assets']=[]
+        with self.assertRaisesRegex(RuntimeError,'exactly one'):
+            self.generator.select_release([self.release(),r])
+
+    def test_renamed_mister_release_family_requires_review(self):
+        r={'tag_name':'v-next','prerelease':False,'assets':[{'name':'IMSAI8080-MiSTer-New.zip'}]}
+        with self.assertRaisesRegex(RuntimeError,'release family'):
+            self.generator.select_release([self.release(),r])
+
+    def test_duplicate_asset_fails(self):
+        r=self.release(); r['assets']*=2
+        with self.assertRaises(RuntimeError): self.generator.select_release([r])
+
+    def test_draft_is_not_selected(self):
+        r=self.release(); r['draft']=True
+        with self.assertRaises(RuntimeError): self.generator.select_release([r])
+
+    def test_wrong_upstream_url_fails(self):
+        r=self.release(); r['assets'][0]['browser_download_url']='https://example.org/file.zip'
+        with self.assertRaises(RuntimeError): self.generator.select_release([r])
+
+    def test_digest_and_size_mismatch_fail(self):
+        a,data=self.payload()
+        with self.assertRaisesRegex(RuntimeError,'size'): self.generator.build_database(a,data+b'x','x/y',1)
+        a['digest']='sha256:'+'0'*64
+        with self.assertRaisesRegex(RuntimeError,'SHA256'): self.generator.build_database(a,data,'x/y',1)
+
+    def test_unexpected_runtime_or_config_in_archive_rejected(self):
+        for name in ('SD/games/IMSAI8080/basic8k40.bin','SD/config/personal.CFG','../escape'):
+            a,data=self.payload(lambda f:f.update({name:b'forbidden'}))
+            with self.assertRaises(RuntimeError): self.generator.build_database(a,data,'x/y',1)
+
+    def test_missing_program_or_wrong_launcher_rejected(self):
+        g=self.generator
+        for change in (lambda f:f.pop('SD/'+g.DEMO),
+                       lambda f:f.update({'SD/'+g.LAUNCHER:b'<mistergamedescription/>'})):
+            a,data=self.payload(change)
+            with self.assertRaises(RuntimeError): g.build_database(a,data,'x/y',1)
+
+    def test_example_is_preserved_and_paths_are_isolated(self):
+        g=self.generator; a,data=self.payload()
+        db=g.build_database(a,data,'x/y',1)
+        files=db['archives']['release']['summary_inline']['files']
+        self.assertEqual(set(files),g.REQUIRED)
+        self.assertFalse(files[g.DEMO]['overwrite'])
+        self.assertTrue(files[g.CORE]['overwrite'])
+        self.assertNotIn('config',db['folders'])
+
+    def test_same_payload_keeps_bundle_bytes_and_timestamp(self):
+        g=self.generator; a,data=self.payload()
+        db=g.build_database(a,data,'x/y',1)
+        with tempfile.TemporaryDirectory() as d:
+            output=Path(d)/'bundle'
+            db_helpers.write_bundle(db,output)
+            before={p.name:p.read_bytes() for p in output.iterdir()}
+            db['timestamp']=2
+            self.assertFalse(db_helpers.write_bundle(db,output))
+            self.assertEqual(before,{p.name:p.read_bytes() for p in output.iterdir()})
+
+
+
+    def games_payload(self, wrong_index=False):
+        g=self.generator
+        def extend(files):
+            for path in g.GAME_REQUIRED-g.REQUIRED:
+                files['SD/'+path]=b'notice'
+            for launcher,(program,index) in g.GAME_LAUNCHERS.items():
+                if wrong_index and index=='1': index='0'
+                files['SD/'+program]=b'\x76'
+                files['SD/'+launcher]=(
+                    f'<mistergamedescription><rbf>{g.CORE[:-4]}</rbf>'
+                    f'<file type="f" index="{index}" path="/media/fat/{program}"/>'
+                    '<setname same_dir="1">IMSAI8080_Downloader</setname></mistergamedescription>').encode()
+        asset,data=self.payload(extend)
+        asset.update(self.release('20261028-games')['assets'][0])
+        return asset,data
+
+    def test_games_release_selected_over_terminal_only(self):
+        r=self.release('20261028-games')
+        self.assertEqual(self.generator.select_release([self.release(),r])[0],r)
+
+    def test_all_games_preserved_on_updates(self):
+        g=self.generator;a,data=self.games_payload()
+        db=g.build_database(a,data,'x/y',1)
+        files=db['archives']['release']['summary_inline']['files']
+        self.assertEqual(set(files),g.GAME_REQUIRED)
+        for program,_ in g.GAME_LAUNCHERS.values():
+            self.assertFalse(files[program]['overwrite'])
+
+    def test_kill_lights_requires_game_input_mode(self):
+        a,data=self.games_payload(wrong_index=True)
+        with self.assertRaisesRegex(RuntimeError,'Launcher/program mismatch'):
+            self.generator.build_database(a,data,'x/y',1)
+
+
 if __name__ == "__main__":
     unittest.main()
