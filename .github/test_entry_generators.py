@@ -3367,5 +3367,104 @@ class CifsScriptsGeneratorTests(unittest.TestCase):
                 self.generator.script_file("cifs_mount.sh")
 
 
+class PapriumGeneratorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("paprium")
+
+    # The successor named in upstream's retirement notice, proposed for review
+    # on pull request #22 and deliberately not recorded in the generator. The
+    # tests below use it as the other repository, so repointing UPSTREAM fails
+    # exactly the test whose job is to refuse the move.
+    SUCCESSOR_UPSTREAM = "thekoalakoa/Paprium_MiSTer"
+
+    @staticmethod
+    def asset(name: str) -> dict[str, str]:
+        return {
+            "name": name,
+            "browser_download_url": f"https://example.com/{name}",
+        }
+
+    def select(self, tag: str, *names: str) -> dict[str, object]:
+        return db_helpers.matching_release_asset(
+            {"tag_name": tag, "assets": [self.asset(name) for name in names]},
+            self.generator.ASSET_PATTERN,
+            highest_match=True,
+        )
+
+    def test_selects_the_newest_dated_core_in_the_release(self) -> None:
+        """A release shaped like V.08: several assets, one of them the dated
+        core, and the highest date wins when upstream leaves older ones
+        attached."""
+        self.assertEqual(
+            "MegaDrive_Paprium_20261013.rbf",
+            self.select(
+                "V.08",
+                "MegaDrive_Paprium_20260915.rbf",
+                "MegaDrive_Paprium_V08.zip",
+                "MegaDrive_Paprium_20261013.rbf",
+                "paprium.cue",
+                "Paprium.mgl",
+            )["name"],
+        )
+
+    def test_rejects_the_retirement_release_that_carries_no_core(self) -> None:
+        """Upstream published `final` with no assets and archived itself
+        read-only, so releases/latest answers a release this entry cannot
+        install from and no later one can ever supersede V.08. Skipping it to
+        stay on V.08 would freeze this database on a dead upstream in silence,
+        so the refusal stands until a human decides what the entry follows."""
+        with self.assertRaisesRegex(RuntimeError, "No matching release asset"):
+            self.select("final")
+
+    def test_rejects_the_successor_projects_payloads(self) -> None:
+        """The successor ships an undated core, under its own name, inside a
+        ZIP. None of it is a MegaDrive_Paprium_YYYYMMDD.rbf, so following the
+        new project is a rewrite of this entry's payloads and paths rather
+        than a value this selection rule can derive."""
+        for names in (
+            ("Paprium_MiSTer_0.3.0.zip",),
+            ("Paprium.rbf", "Paprium.mgl"),
+        ):
+            with self.subTest(assets=names):
+                with self.assertRaisesRegex(RuntimeError, "No matching release asset"):
+                    self.select("v0.3.0", *names)
+
+    def test_keeps_following_the_reviewed_upstream_repository(self) -> None:
+        """The retirement notice and the repository description name a
+        successor, and both are prose. Upstream identity is a reviewed value,
+        so UPSTREAM stays on the repository this database has always tracked
+        until a human accepts the handover."""
+        self.assertEqual(
+            "MisterPezz82/Paprium_MegaDrive_MiSTer", self.generator.UPSTREAM
+        )
+        self.assertNotEqual(self.SUCCESSOR_UPSTREAM, self.generator.UPSTREAM)
+
+    def test_discovery_holds_the_reviewed_upstream_to_its_name(self) -> None:
+        """Archiving leaves no redirect behind, so the identity check cannot
+        see this handover: the old path still answers under its own name. It
+        stays the gate for the next rename or transfer of that name."""
+
+        def answer(repository: str) -> bytes:
+            return json.dumps(
+                {
+                    "tag_name": "V.08",
+                    "url": f"https://api.github.com/repos/{repository}/releases/1",
+                }
+            ).encode("utf-8")
+
+        with patch.object(
+            db_helpers, "http_get_bytes", return_value=answer(self.generator.UPSTREAM)
+        ):
+            release = db_helpers.github_latest_release(self.generator.UPSTREAM)
+        self.assertEqual("V.08", release["tag_name"])
+
+        with patch.object(
+            db_helpers, "http_get_bytes", return_value=answer(self.SUCCESSOR_UPSTREAM)
+        ):
+            with self.assertRaisesRegex(RuntimeError, "renamed or transferred"):
+                db_helpers.github_latest_release(self.generator.UPSTREAM)
+
+
 if __name__ == "__main__":
     unittest.main()
