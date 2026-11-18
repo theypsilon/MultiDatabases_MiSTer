@@ -1,4 +1,4 @@
-# IMSAI 8080 prototype database
+# IMSAI 8080 core database
 
 - Proposed database ID:
   [`MultiDatabases/imsai8080`](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2Ftheypsilon%2FMultiDatabases_MiSTer%2Fdb%2Fimsai8080%2Fdb.json)
@@ -10,18 +10,18 @@
 Do not distribute the preview drop-in as an operational installer before this
 entry is merged and its database is published.
 
-Experimental FPGA implementation with an 8080 CPU, green terminal and virtual
+FPGA implementation with an 8080 CPU, green terminal and virtual
 LED/switch panel. This is not hybrid FPGA/ARM emulation. F7 switches between the
-combined terminal/panel and enlarged panel views. It remains a prototype;
+combined terminal/panel and enlarged panel views. Known limitations:
 STEP/POWER are display-only and historical peripheral compatibility is limited.
 
 The generator follows the newest eligible `mister-downloader-YYYYMMDD[-games]` release,
 requires exactly one `IMSAI8080-MiSTer-Downloader-YYYYMMDD[-games].zip`, verifies its
 GitHub SHA256 and exact supported layout, then installs only its SD payload.
 Other release families in the same repository (including MEGA65) are ignored.
-Drafts and ordinary prereleases are skipped. The prereleases
+Drafts and ordinary prereleases are skipped. These tagged releases were originally published as prereleases; the current complete games release is now marked released. The tags
 `mister-downloader-20261028` and `mister-downloader-20261028-games` are explicit
-**proposed prerelease exceptions for maintainer review** for this explicitly enabled prototype. The upstream package is published at the matching release tag. A newer eligible release with a
+**proposed prerelease exceptions for maintainer review** for this explicitly enabled core. The upstream package is published at the matching release tag. A newer eligible release with a
 missing or changed payload fails instead of silently retaining a stale build.
 
 ## Installed files and existing installations
