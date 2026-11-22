@@ -3372,83 +3372,263 @@ class PapriumGeneratorTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.generator = load_generator("paprium")
 
-    # The successor named in upstream's retirement notice, proposed for review
-    # on pull request #22 and deliberately not recorded in the generator. The
-    # tests below use it as the other repository, so repointing UPSTREAM fails
-    # exactly the test whose job is to refuse the move.
-    SUCCESSOR_UPSTREAM = "thekoalakoa/Paprium_MiSTer"
+    VERSION = "0.3.1"
+    ARCHIVE_URL = (
+        "https://github.com/thekoalakoa/Paprium_MiSTer/releases/download/"
+        "v0.3.1/Paprium_MiSTer_0.3.1.zip"
+    )
+    MGL_REVISION = "d" * 40
+    CORE = bytes(1_200_000)
+    FIRMWARE = bytes(262_144)
+    # The repository this entry tracked until it retired itself, named `final`
+    # and archived read-only, and whose successor the repository owner accepted
+    # on pull request #22. The tests below use it as the other repository: going
+    # back to it, or to its dated-core releases, needs its own review.
+    RETIRED_UPSTREAM = "MisterPezz82/Paprium_MegaDrive_MiSTer"
+
+    def launcher(
+        self,
+        *,
+        rbf: str = "_Console/Paprium",
+        firmware: str = "/media/fat/games/Paprium/little_man_firmware.bin",
+        index: str = "4",
+    ) -> bytes:
+        """The shape of upstream's own launcher, comment included."""
+        return (
+            "<mistergamedescription>\n"
+            f"    <rbf>{rbf}</rbf>\n"
+            "    <!-- 0.3.0: load the Little-Man firmware first, then the game. -->\n"
+            f'    <file delay="1" type="f" index="{index}" path="{firmware}"/>\n'
+            '    <file delay="1" type="f" index="1" '
+            'path="/media/fat/games/Paprium/Paprium/Paprium.md"/>\n'
+            "</mistergamedescription>\n"
+        ).encode("utf-8")
+
+    def member(self, path: str, data: bytes = b"data"):
+        return self.generator.ArchiveMember(archive_path=path, path=path, data=data)
+
+    def release_members(self, *extra, exclude: str = ""):
+        payload = {
+            "_Console/Paprium.rbf": self.CORE,
+            "_Console/Paprium.mgl": self.launcher(),
+            "games/Paprium/little_man_firmware.bin": self.FIRMWARE,
+        }
+        return [
+            self.member(path, data)
+            for path, data in payload.items()
+            if path != exclude
+        ] + list(extra)
 
     @staticmethod
-    def asset(name: str) -> dict[str, str]:
+    def asset(name: str, url: str | None = None) -> dict[str, str]:
         return {
             "name": name,
-            "browser_download_url": f"https://example.com/{name}",
+            "browser_download_url": url or f"https://example.com/{name}",
         }
 
-    def select(self, tag: str, *names: str) -> dict[str, object]:
-        return db_helpers.matching_release_asset(
-            {"tag_name": tag, "assets": [self.asset(name) for name in names]},
-            self.generator.ASSET_PATTERN,
-            highest_match=True,
-        )
+    def release(self) -> dict[str, object]:
+        """A release shaped like thekoalakoa/Paprium_MiSTer v0.3.1."""
+        return {
+            "tag_name": "v0.3.1",
+            "assets": [self.asset("Paprium_MiSTer_0.3.1.zip", self.ARCHIVE_URL)],
+        }
 
-    def test_selects_the_newest_dated_core_in_the_release(self) -> None:
-        """A release shaped like V.08: several assets, one of them the dated
-        core, and the highest date wins when upstream leaves older ones
-        attached."""
-        self.assertEqual(
-            "MegaDrive_Paprium_20261013.rbf",
-            self.select(
-                "V.08",
-                "MegaDrive_Paprium_20260915.rbf",
-                "MegaDrive_Paprium_V08.zip",
-                "MegaDrive_Paprium_20261013.rbf",
-                "paprium.cue",
-                "Paprium.mgl",
-            )["name"],
-        )
+    def archive(self, *, members=None) -> bytes:
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+            for member in self.release_members() if members is None else members:
+                archive.writestr(member.path, member.data)
+        return output.getvalue()
 
-    def test_rejects_the_retirement_release_that_carries_no_core(self) -> None:
-        """Upstream published `final` with no assets and archived itself
-        read-only, so releases/latest answers a release this entry cannot
-        install from and no later one can ever supersede V.08. Skipping it to
-        stay on V.08 would freeze this database on a dead upstream in silence,
-        so the refusal stands until a human decides what the entry follows."""
-        with self.assertRaisesRegex(RuntimeError, "No matching release asset"):
-            self.select("final")
+    def test_selects_the_one_versioned_bundle_of_the_release(self) -> None:
+        """0.2.6 attached an unrelated cpu-mate-brain ZIP next to the bundle, so
+        the bundle is picked by name and its version comes from that name."""
+        release = self.release()
+        release["assets"] = [
+            self.asset("cpu-mate-brain_0.3.1.zip"),
+            *release["assets"],
+        ]
 
-    def test_rejects_the_successor_projects_payloads(self) -> None:
-        """The successor ships an undated core, under its own name, inside a
-        ZIP. None of it is a MegaDrive_Paprium_YYYYMMDD.rbf, so following the
-        new project is a rewrite of this entry's payloads and paths rather
-        than a value this selection rule can derive."""
-        for names in (
-            ("Paprium_MiSTer_0.3.0.zip",),
-            ("Paprium.rbf", "Paprium.mgl"),
+        asset, version = self.generator.release_asset(release)
+
+        self.assertEqual("Paprium_MiSTer_0.3.1.zip", asset["name"])
+        self.assertEqual("0.3.1", version)
+
+    def test_rejects_a_release_without_exactly_one_bundle(self) -> None:
+        for assets in (
+            [],
+            [self.asset("cpu-mate-brain_0.3.1.zip")],
+            [
+                self.asset("Paprium_MiSTer_0.3.1.zip", self.ARCHIVE_URL),
+                self.asset("Paprium_MiSTer_0.3.2.zip"),
+            ],
         ):
-            with self.subTest(assets=names):
-                with self.assertRaisesRegex(RuntimeError, "No matching release asset"):
-                    self.select("v0.3.0", *names)
+            with self.subTest(assets=[asset["name"] for asset in assets]):
+                with self.assertRaisesRegex(RuntimeError, "exactly one"):
+                    self.generator.release_asset(
+                        {"tag_name": "v0.3.1", "assets": assets}
+                    )
 
-    def test_keeps_following_the_reviewed_upstream_repository(self) -> None:
-        """The retirement notice and the repository description name a
-        successor, and both are prose. Upstream identity is a reviewed value,
-        so UPSTREAM stays on the repository this database has always tracked
-        until a human accepts the handover."""
+    def test_rejects_the_retired_projects_release_shapes(self) -> None:
+        """Neither the retired project's V.08 (a dated core, a cue sheet and two
+        launchers) nor its assetless retirement release can satisfy this entry,
+        so a move back to it fails the generator instead of publishing."""
+        for tag, names in (
+            (
+                "V.08",
+                (
+                    "MegaDrive_Paprium_20261013.rbf",
+                    "MegaDrive_Paprium_V08.zip",
+                    "paprium.cue",
+                    "Paprium.mgl",
+                    "Paprium_PCM.mgl",
+                ),
+            ),
+            ("final", ()),
+        ):
+            with self.subTest(tag=tag):
+                with self.assertRaisesRegex(RuntimeError, "exactly one"):
+                    self.generator.release_asset(
+                        {
+                            "tag_name": tag,
+                            "assets": [self.asset(name) for name in names],
+                        }
+                    )
+
+    def test_rejects_a_bundle_url_from_another_release(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "does not belong to release"):
+            self.generator.release_asset(
+                {
+                    "tag_name": "v0.3.2",
+                    "assets": [
+                        self.asset("Paprium_MiSTer_0.3.1.zip", self.ARCHIVE_URL)
+                    ],
+                }
+            )
+
+    def test_installs_the_core_and_firmware_into_this_entrys_folders(self) -> None:
+        """The reviewed layout decision: the core keeps this entry's
+        "_Custom Cores/Cores" folder instead of upstream's "_Console", the
+        firmware lands in the games/PapriumMD folder the shipped launcher's
+        setname opens, and upstream's own launcher is read but not installed."""
+        selected = self.generator.selected_files(self.release_members())
+
         self.assertEqual(
-            "MisterPezz82/Paprium_MegaDrive_MiSTer", self.generator.UPSTREAM
+            [
+                ("_Custom Cores/Cores/Paprium.rbf", "_Console/Paprium.rbf"),
+                (
+                    "games/PapriumMD/little_man_firmware.bin",
+                    "games/Paprium/little_man_firmware.bin",
+                ),
+            ],
+            [(destination, member.path) for destination, member in selected],
         )
-        self.assertNotEqual(self.SUCCESSOR_UPSTREAM, self.generator.UPSTREAM)
+
+    def test_rejects_a_bundle_with_unexpected_files(self) -> None:
+        for path in ("_Console/Paprium_alt.rbf", "README.md", "linux/user-startup.sh"):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(RuntimeError, "does not expect"):
+                    self.generator.selected_files(
+                        self.release_members(self.member(path))
+                    )
+
+    def test_rejects_a_bundle_missing_any_reviewed_file(self) -> None:
+        for path in (
+            "_Console/Paprium.rbf",
+            "_Console/Paprium.mgl",
+            "games/Paprium/little_man_firmware.bin",
+        ):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(RuntimeError, "missing required files"):
+                    self.generator.selected_files(self.release_members(exclude=path))
+
+    def test_rejects_implausible_core_and_firmware_payloads(self) -> None:
+        cases = {
+            "_Console/Paprium.rbf": ("implausible RBF size", b"not a core"),
+            "games/Paprium/little_man_firmware.bin": ("implausible size", b""),
+        }
+        for path, (message, data) in cases.items():
+            with self.subTest(path=path):
+                members = self.release_members(exclude=path)
+                members.append(self.member(path, data))
+                with self.assertRaisesRegex(RuntimeError, message):
+                    self.generator.selected_files(members)
+
+    def test_rejects_an_upstream_launcher_that_moved_the_payload(self) -> None:
+        """Upstream's launcher is the structured statement of which member is
+        the core and that the firmware is one of its load entries. A release
+        that moves either fails for review instead of being guessed at."""
+        cases = {
+            "core": (dict(rbf="_Console/Paprium_v2"), "must launch"),
+            "firmware": (
+                dict(firmware="/media/fat/games/Paprium/firmware.bin"),
+                "must load",
+            ),
+            "index": (dict(index="3"), "must load"),
+        }
+        for name, (overrides, message) in cases.items():
+            with self.subTest(name=name):
+                members = self.release_members(exclude="_Console/Paprium.mgl")
+                members.append(
+                    self.member("_Console/Paprium.mgl", self.launcher(**overrides))
+                )
+                with self.assertRaisesRegex(RuntimeError, message):
+                    self.generator.selected_files(members)
+
+    def test_rejects_an_upstream_launcher_that_is_not_an_mgl(self) -> None:
+        for data in (b"Paprium 0.3.1\n", b"<mistergame><rbf>x</rbf></mistergame>"):
+            with self.subTest(data=data):
+                members = self.release_members(exclude="_Console/Paprium.mgl")
+                members.append(self.member("_Console/Paprium.mgl", data))
+                with self.assertRaisesRegex(
+                    RuntimeError, "not a readable MGL|not a MiSTer launcher"
+                ):
+                    self.generator.selected_files(members)
+
+    def test_the_shipped_launcher_follows_the_renamed_core(self) -> None:
+        self.generator.validate_mgl(
+            (ROOT / "paprium" / "PapriumMD.mgl").read_bytes()
+        )
+
+    def test_rejects_a_launcher_still_pointing_at_the_retired_core(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "must launch"):
+            self.generator.validate_mgl(
+                b"<mistergamedescription>\n"
+                b"\t<rbf>_Custom Cores/Cores/MegaDrive_Paprium</rbf>\n"
+                b"\t<setname>PapriumMD</setname>\n"
+                b"</mistergamedescription>\n"
+            )
+
+    def test_rejects_a_launcher_that_renames_the_game_folder(self) -> None:
+        """Following upstream's Paprium naming would move the ROM folder and
+        the saves of every existing user, which this review decided against."""
+        with self.assertRaisesRegex(RuntimeError, "reviewed PapriumMD setname"):
+            self.generator.validate_mgl(
+                b"<mistergamedescription>\n"
+                b"\t<rbf>_Custom Cores/Cores/Paprium</rbf>\n"
+                b"\t<setname>Paprium</setname>\n"
+                b"</mistergamedescription>\n"
+            )
+
+    def test_follows_the_reviewed_successor_repository(self) -> None:
+        """The retired repository named its successor in a retirement notice and
+        in its description, both prose, so the generator failed closed until the
+        repository owner accepted the move on pull request #22. The accepted
+        repository is pinned here."""
+        self.assertEqual("thekoalakoa/Paprium_MiSTer", self.generator.UPSTREAM)
+        self.assertNotEqual(self.RETIRED_UPSTREAM, self.generator.UPSTREAM)
 
     def test_discovery_holds_the_reviewed_upstream_to_its_name(self) -> None:
-        """Archiving leaves no redirect behind, so the identity check cannot
-        see this handover: the old path still answers under its own name. It
-        stays the gate for the next rename or transfer of that name."""
+        """Archiving left no redirect behind, so the identity check could not
+        see this handover: the retired path still answered under its own name.
+        Accepting the successor did not spend that gate -- it now pins the new
+        repository, so the next rename or transfer fails before any asset is
+        fetched."""
 
         def answer(repository: str) -> bytes:
             return json.dumps(
                 {
-                    "tag_name": "V.08",
+                    "tag_name": "v0.3.1",
                     "url": f"https://api.github.com/repos/{repository}/releases/1",
                 }
             ).encode("utf-8")
@@ -3456,14 +3636,112 @@ class PapriumGeneratorTests(unittest.TestCase):
         with patch.object(
             db_helpers, "http_get_bytes", return_value=answer(self.generator.UPSTREAM)
         ):
-            release = db_helpers.github_latest_release(self.generator.UPSTREAM)
-        self.assertEqual("V.08", release["tag_name"])
+            release = self.generator.github_latest_release(self.generator.UPSTREAM)
+        self.assertEqual("v0.3.1", release["tag_name"])
 
         with patch.object(
-            db_helpers, "http_get_bytes", return_value=answer(self.SUCCESSOR_UPSTREAM)
+            db_helpers, "http_get_bytes", return_value=answer(self.RETIRED_UPSTREAM)
         ):
             with self.assertRaisesRegex(RuntimeError, "renamed or transferred"):
-                db_helpers.github_latest_release(self.generator.UPSTREAM)
+                self.generator.github_latest_release(self.generator.UPSTREAM)
+
+    def test_generates_the_database_from_the_release_bundle(self) -> None:
+        archive = self.archive()
+        mgl = (ROOT / "paprium" / "PapriumMD.mgl").read_bytes()
+
+        def apply_tags(database, **_kwargs):
+            database["tag_dictionary"] = {"paprium": 0}
+            for descriptions in (database["files"], database["folders"]):
+                for description in descriptions.values():
+                    description["tags"] = [0]
+            for entry in database["archives"].values():
+                for key in ("files", "folders"):
+                    for description in entry["summary_inline"][key].values():
+                        description["tags"] = [0]
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "paprium"
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "generate_db.py",
+                        "--output", str(output),
+                        "--repository", "theypsilon/MultiDatabases_MiSTer",
+                        "--timestamp", "1",
+                    ],
+                ),
+                patch.object(
+                    self.generator, "github_latest_release", return_value=self.release()
+                ),
+                patch.object(
+                    self.generator, "http_get_bytes", return_value=archive
+                ),
+                patch.object(
+                    self.generator, "git_file_revision", return_value=self.MGL_REVISION
+                ),
+                patch("db_helpers.apply_standard_tags", side_effect=apply_tags),
+            ):
+                self.assertEqual(0, self.generator.main())
+
+            database = json.loads((output / "db.json").read_bytes())
+
+        self.assertEqual("MultiDatabases/paprium", database["db_id"])
+        self.assertEqual(
+            "https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/"
+            "db/paprium/db.json",
+            database["db_url"],
+        )
+
+        self.assertEqual(["_Custom Cores/PapriumMD.mgl"], list(database["files"]))
+        launcher = database["files"]["_Custom Cores/PapriumMD.mgl"]
+        self.assertEqual(
+            "https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/"
+            f"{self.MGL_REVISION}/paprium/PapriumMD.mgl",
+            launcher["url"],
+        )
+        self.assertEqual(hashlib.md5(mgl).hexdigest(), launcher["hash"])
+
+        entry = database["archives"]["release"]
+        self.assertEqual(self.ARCHIVE_URL, entry["archive_file"]["url"])
+        self.assertEqual(hashlib.md5(archive).hexdigest(), entry["archive_file"]["hash"])
+        self.assertEqual("Installing Paprium for MiSTer 0.3.1", entry["description"])
+
+        files = entry["summary_inline"]["files"]
+        self.assertEqual(
+            [
+                "_Custom Cores/Cores/Paprium.rbf",
+                "games/PapriumMD/little_man_firmware.bin",
+            ],
+            list(files),
+        )
+        core = files["_Custom Cores/Cores/Paprium.rbf"]
+        self.assertEqual("_Console/Paprium.rbf", core["arc_at"])
+        self.assertEqual(hashlib.md5(self.CORE).hexdigest(), core["hash"])
+        self.assertTrue(core["reboot"])
+        firmware = files["games/PapriumMD/little_man_firmware.bin"]
+        self.assertEqual("games/Paprium/little_man_firmware.bin", firmware["arc_at"])
+        self.assertEqual(hashlib.md5(self.FIRMWARE).hexdigest(), firmware["hash"])
+        self.assertNotIn("reboot", firmware)
+        self.assertEqual(
+            ["_Custom Cores", "_Custom Cores/Cores", "games", "games/PapriumMD"],
+            list(entry["summary_inline"]["folders"]),
+        )
+
+    def test_an_mgl_inconsistent_with_the_installed_core_fails_the_generator(
+        self,
+    ) -> None:
+        with (
+            patch("sys.argv", ["generate_db.py"]),
+            patch.object(
+                self.generator, "github_latest_release", return_value=self.release()
+            ),
+            patch.object(self.generator, "http_get_bytes", return_value=self.archive()),
+            patch.object(self.generator, "git_file_revision", side_effect=AssertionError),
+            patch.object(self.generator, "MGL_RBF", "_Custom Cores/Cores/MegaDrive_Paprium"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "must launch"):
+                self.generator.main()
 
 
 if __name__ == "__main__":
