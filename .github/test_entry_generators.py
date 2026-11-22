@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,7 @@ import zipfile
 import zlib
 from pathlib import Path
 from types import ModuleType
+from typing import Sequence
 from unittest.mock import call, patch
 
 import db_helpers
@@ -48,12 +50,15 @@ class ThreeSArmMappingTests(unittest.TestCase):
             destination_for("release/MiSTer_3S-ARM"),
         )
         self.assertEqual(
-            "_Other/3S-ARM.rbf",
-            destination_for("release/_Other/3S-ARM.rbf"),
+            "_Other/3S-ARM_20261021.rbf",
+            destination_for("release/_Other/3S-ARM_20261021.rbf"),
         )
+        # A dated core packed at the root of the ZIP lands in _Other all the
+        # same; sole_core then holds whatever name it landed under to the
+        # reviewed shape.
         self.assertEqual(
-            "_Other/3S-ARM.rbf",
-            destination_for("release/3S-ARM.rbf"),
+            "_Other/3S-ARM_20261021.rbf",
+            destination_for("release/3S-ARM_20261021.rbf"),
         )
         self.assertEqual(
             "games/3s-arm/bin/3s-arm",
@@ -67,6 +72,207 @@ class ThreeSArmMappingTests(unittest.TestCase):
             destination_for("release/games/3s-arm/resources/SF33RD.AFS")
         )
         self.assertIsNone(destination_for("release/SF33RD.AFS"))
+        # An undated core at the ZIP root is not a name this entry installs,
+        # so it is not lifted into _Other either: sole_core then reports the
+        # release as shipping no core at all.
+        self.assertIsNone(destination_for("release/3S-ARM.rbf"))
+
+
+class ThreeSArmReleaseTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("3s-arm")
+
+    TAG = "v20261119"
+    ASSET_NAME = "3s-mister-arm-2026-11-19.zip"
+    ARCHIVE_URL = (
+        "https://github.com/kimchiman52/3s-mister-arm/releases/download/"
+        f"{TAG}/{ASSET_NAME}"
+    )
+    # The core as upstream dates it since v20261117. Only this datecode may
+    # move (pull request #23), so the tests below vary it and vary nothing else
+    # about the name without being refused.
+    CORE = "_Other/3S-ARM_20261021.rbf"
+
+    def archive(
+        self, *, cores: Sequence[str] | None = None, exclude: str = ""
+    ) -> bytes:
+        """The layout of the release this database installs."""
+        payload = {
+            "MiSTer_3S-ARM": b"\x7fELF launcher",
+            "games/3s-arm/bin/3s-arm": b"\x7fELF game",
+            "games/3s-arm/lib/libSDL3.so.0": b"sdl",
+            "games/3s-arm/lib/libminiupnpc.so.17": b"upnp",
+            "games/3s-arm/licenses/LICENSE": b"agpl",
+            "games/3s-arm/scripts/run-3s-arm.sh": b"#!/bin/sh\n",
+            # Upstream's own notes, and the optional game data the user
+            # supplies from their own PS2 copy: neither is published.
+            "README.txt": b"notes",
+            "games/3s-arm/resources/SF33RD.AFS": b"game data",
+        }
+        for index, core in enumerate((self.CORE,) if cores is None else cores):
+            payload[core] = b"\xff\xff\xff\xffcore" + bytes([index])
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("games/3s-arm/resources/", "")
+            for path, data in payload.items():
+                if path != exclude:
+                    archive.writestr(path, data)
+        return output.getvalue()
+
+    def run_generator(self, archive: bytes, output: Path | None = None) -> int:
+        release = {
+            "tag_name": self.TAG,
+            "assets": [
+                {
+                    "name": self.ASSET_NAME,
+                    "browser_download_url": self.ARCHIVE_URL,
+                }
+            ],
+        }
+
+        def apply_tags(database, **_kwargs):
+            database["tag_dictionary"] = {"3s-arm": 0}
+            for descriptions in (database["files"], database["folders"]):
+                for description in descriptions.values():
+                    description["tags"] = [0]
+            for entry in database["archives"].values():
+                for key in ("files", "folders"):
+                    for description in entry["summary_inline"][key].values():
+                        description["tags"] = [0]
+
+        argv = ["generate_db.py"]
+        if output is not None:
+            argv += [
+                "--output", str(output),
+                "--repository", "theypsilon/MultiDatabases_MiSTer",
+                "--timestamp", "1",
+            ]
+        with (
+            patch("sys.argv", argv),
+            patch.object(
+                self.generator, "github_latest_release", return_value=release
+            ),
+            patch.object(self.generator, "http_get_bytes", return_value=archive),
+            patch("db_helpers.apply_standard_tags", side_effect=apply_tags),
+        ):
+            return self.generator.main()
+
+    def generated_database(self, archive: bytes) -> dict:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "3s-arm"
+            self.assertEqual(0, self.run_generator(archive, output))
+            return json.loads((output / "db.json").read_bytes())
+
+    def test_generates_the_database_from_the_release_zip(self) -> None:
+        database = self.generated_database(self.archive())
+
+        self.assertEqual("MultiDatabases/3s-arm", database["db_id"])
+        self.assertEqual(
+            "https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/"
+            "db/3s-arm/db.json",
+            database["db_url"],
+        )
+        self.assertEqual({}, database["files"])
+        # The folder the README tells users to drop their own SF33RD.AFS into
+        # is created even though nothing is installed in it.
+        self.assertIn("games/3s-arm/resources", database["folders"])
+
+        archive = database["archives"]["release"]
+        self.assertEqual(self.ARCHIVE_URL, archive["archive_file"]["url"])
+        self.assertEqual(f"Installing 3S-ARM {self.TAG}", archive["description"])
+        self.assertEqual(
+            [
+                "MiSTer_3S-ARM",
+                self.CORE,
+                "games/3s-arm/bin/3s-arm",
+                "games/3s-arm/lib/libSDL3.so.0",
+                "games/3s-arm/lib/libminiupnpc.so.17",
+                "games/3s-arm/licenses/LICENSE",
+                "games/3s-arm/scripts/run-3s-arm.sh",
+            ],
+            sorted(archive["summary_inline"]["files"]),
+        )
+
+    def test_rejects_a_release_missing_any_required_file(self) -> None:
+        for path in self.generator.REQUIRED:
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(RuntimeError, f"missing.*{path}"):
+                    self.run_generator(self.archive(exclude=path))
+
+    def test_installs_the_core_at_whatever_date_upstream_ships(self) -> None:
+        """Reviewed on pull request #23: the datecode MiSTer puts in a core
+        filename is upstream's to move, so a rebuilt core publishes without a
+        human. The core is installed where upstream publishes it, and the
+        `[3S-ARM]` section of MiSTer.ini still applies because MiSTer derives
+        a core's identity from the name with the datecode stripped."""
+        for core in (
+            self.CORE,
+            "_Other/3S-ARM_19991231.rbf",
+            # 2028 is a leap year, so this one is a date; see below for the
+            # same day in a year that is not.
+            "_Other/3S-ARM_20280229.rbf",
+        ):
+            with self.subTest(core=core):
+                database = self.generated_database(self.archive(cores=(core,)))
+                installed = database["archives"]["release"]["summary_inline"]["files"]
+                self.assertEqual(
+                    [core], [path for path in installed if path.endswith(".rbf")]
+                )
+
+    def test_rejects_a_core_whose_datecode_is_not_a_date(self) -> None:
+        """The shape is not the whole of it: a core has to be dated with a
+        calendar date, so eight digits that are not one stop the build rather
+        than install a core nobody can place in upstream's history."""
+        for core in (
+            "_Other/3S-ARM_20261332.rbf",
+            "_Other/3S-ARM_20270229.rbf",
+            "_Other/3S-ARM_00000000.rbf",
+        ):
+            with self.subTest(core=core):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    f"not dated with a calendar date: {re.escape(core)}",
+                ):
+                    self.run_generator(self.archive(cores=(core,)))
+
+    def test_rejects_a_core_renamed_beyond_its_date(self) -> None:
+        """Everything but the date is still a reviewed contract. The `_Other`
+        mapping passes any name in that folder straight through, so without
+        this gate a rename would move the core file users have installed, or
+        install it somewhere the MiSTer menu does not look."""
+        for core in (
+            # The undated name upstream shipped up to v20260417: coming back
+            # to it is as much a rename as leaving it was.
+            "_Other/3S-ARM.rbf",
+            "_Other/3s-arm_20261021.rbf",
+            "_Other/3S-ARM-20261021.rbf",
+            "_Other/3S-ARM_2026102.rbf",
+            "_Other/cores/3S-ARM_20261021.rbf",
+        ):
+            with self.subTest(core=core):
+                with self.assertRaisesRegex(
+                    RuntimeError, f"exactly one .* core, found: {re.escape(core)}"
+                ):
+                    self.run_generator(self.archive(cores=(core,)))
+
+    def test_rejects_a_release_shipping_more_than_one_core(self) -> None:
+        """The MiSTer menu lists every `.rbf` in `_Other` separately, so two
+        cores would show 3S-ARM twice -- what upstream's own README warns
+        about -- and the Downloader would keep both installed. This entry had
+        no such check while its core name was pinned to a single string."""
+        for cores in (
+            (self.CORE, "_Other/3S-ARM_20261119.rbf"),
+            (self.CORE, "_Other/3S-ARM.rbf"),
+            (self.CORE, "_Other/SomethingElse.rbf"),
+        ):
+            with self.subTest(cores=cores):
+                with self.assertRaisesRegex(RuntimeError, "exactly one .* core"):
+                    self.run_generator(self.archive(cores=cores))
+
+    def test_rejects_a_release_shipping_no_core(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "exactly one .* core, found: none"):
+            self.run_generator(self.archive(cores=()))
 
 
 class Mms2GbReleaseTests(unittest.TestCase):
