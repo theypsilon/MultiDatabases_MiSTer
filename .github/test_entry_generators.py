@@ -51,10 +51,12 @@ class ThreeSArmMappingTests(unittest.TestCase):
             "_Other/3S-ARM.rbf",
             destination_for("release/_Other/3S-ARM.rbf"),
         )
-        self.assertEqual(
-            "_Other/3S-ARM.rbf",
-            destination_for("release/3S-ARM.rbf"),
-        )
+        # A core packed at the root of the ZIP lands in _Other all the same.
+        # The name follows the generator's own reviewed CORE_PATH rather than a
+        # second copy of it, so reviewing that name again stays a one-line
+        # change and leaves this mapping test alone.
+        core = self.generator.CORE_PATH
+        self.assertEqual(core, destination_for(f"release/{core.split('/')[-1]}"))
         self.assertEqual(
             "games/3s-arm/bin/3s-arm",
             destination_for("release/games/3s-arm/bin/3s-arm"),
@@ -67,6 +69,142 @@ class ThreeSArmMappingTests(unittest.TestCase):
             destination_for("release/games/3s-arm/resources/SF33RD.AFS")
         )
         self.assertIsNone(destination_for("release/SF33RD.AFS"))
+
+
+class ThreeSArmReleaseTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator("3s-arm")
+
+    TAG = "v20260417"
+    ARCHIVE_URL = (
+        "https://github.com/kimchiman52/3s-mister-arm/releases/download/"
+        "v20260417/3s-mister-arm-2026-04-17.zip"
+    )
+    # The dated name upstream renamed the core to in v20261117, proposed for
+    # review on pull request #23 and deliberately not recorded in the
+    # generator. The tests below use it as the other name: the gate refuses it,
+    # the way it refuses any name but the reviewed one.
+    RENAMED_CORE = "_Other/3S-ARM_20261021.rbf"
+
+    def archive(self, *, core: str = "", exclude: str = "") -> bytes:
+        """The layout of the release the published database installs."""
+        payload = {
+            "MiSTer_3S-ARM": b"\x7fELF launcher",
+            core or self.generator.CORE_PATH: b"\xff\xff\xff\xffcore",
+            "games/3s-arm/bin/3s-arm": b"\x7fELF game",
+            "games/3s-arm/lib/libSDL3.so.0": b"sdl",
+            "games/3s-arm/licenses/LICENSE": b"agpl",
+            "games/3s-arm/scripts/run-3s-arm.sh": b"#!/bin/sh\n",
+            # Upstream's own notes, and the game data the user supplies from
+            # their own PS2 copy: neither is published.
+            "README.txt": b"notes",
+            "games/3s-arm/resources/SF33RD.AFS": b"game data",
+        }
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("games/3s-arm/resources/", "")
+            for path, data in payload.items():
+                if path != exclude:
+                    archive.writestr(path, data)
+        return output.getvalue()
+
+    def run_generator(self, archive: bytes, output: Path | None = None) -> int:
+        release = {
+            "tag_name": self.TAG,
+            "assets": [
+                {
+                    "name": "3s-mister-arm-2026-04-17.zip",
+                    "browser_download_url": self.ARCHIVE_URL,
+                }
+            ],
+        }
+
+        def apply_tags(database, **_kwargs):
+            database["tag_dictionary"] = {"3s-arm": 0}
+            for descriptions in (database["files"], database["folders"]):
+                for description in descriptions.values():
+                    description["tags"] = [0]
+            for entry in database["archives"].values():
+                for key in ("files", "folders"):
+                    for description in entry["summary_inline"][key].values():
+                        description["tags"] = [0]
+
+        argv = ["generate_db.py"]
+        if output is not None:
+            argv += [
+                "--output", str(output),
+                "--repository", "theypsilon/MultiDatabases_MiSTer",
+                "--timestamp", "1",
+            ]
+        with (
+            patch("sys.argv", argv),
+            patch.object(
+                self.generator, "github_latest_release", return_value=release
+            ),
+            patch.object(self.generator, "http_get_bytes", return_value=archive),
+            patch("db_helpers.apply_standard_tags", side_effect=apply_tags),
+        ):
+            return self.generator.main()
+
+    def test_generates_the_database_from_the_release_zip(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "3s-arm"
+            self.assertEqual(0, self.run_generator(self.archive(), output))
+            database = json.loads((output / "db.json").read_bytes())
+
+        self.assertEqual("MultiDatabases/3s-arm", database["db_id"])
+        self.assertEqual(
+            "https://raw.githubusercontent.com/theypsilon/MultiDatabases_MiSTer/"
+            "db/3s-arm/db.json",
+            database["db_url"],
+        )
+        self.assertEqual({}, database["files"])
+        # The folder the README tells users to drop their own SF33RD.AFS into
+        # is created even though nothing is installed in it.
+        self.assertIn("games/3s-arm/resources", database["folders"])
+
+        archive = database["archives"]["release"]
+        self.assertEqual(self.ARCHIVE_URL, archive["archive_file"]["url"])
+        self.assertEqual(f"Installing 3S-ARM {self.TAG}", archive["description"])
+        self.assertEqual(
+            [
+                "MiSTer_3S-ARM",
+                self.generator.CORE_PATH,
+                "games/3s-arm/bin/3s-arm",
+                "games/3s-arm/lib/libSDL3.so.0",
+                "games/3s-arm/licenses/LICENSE",
+                "games/3s-arm/scripts/run-3s-arm.sh",
+            ],
+            sorted(archive["summary_inline"]["files"]),
+        )
+
+    def test_rejects_a_release_missing_any_required_file(self) -> None:
+        for path in self.generator.REQUIRED:
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(RuntimeError, f"missing.*{path}"):
+                    self.run_generator(self.archive(exclude=path))
+
+    def test_rejects_the_renamed_dated_core(self) -> None:
+        """Upstream renamed the core to the dated MiSTer form in v20261117.
+        The ZIP still carries a complete payload, so nothing but this gate
+        stands between the rename and users: the `_Other` mapping would pass
+        the new name straight through and move the installed core. Whichever
+        name this database installs is a reviewed value, so the generator
+        fails and the rename waits for a human on pull request #23."""
+        with self.assertRaisesRegex(
+            RuntimeError, f"missing.*{self.generator.CORE_PATH}"
+        ):
+            self.run_generator(self.archive(core=self.RENAMED_CORE))
+
+    def test_pins_the_reviewed_core_name(self) -> None:
+        """The name above is not recorded as the reviewed one: upstream
+        published v20261117 and v20261119 as ordinary releases, so this
+        database is parked on v20260417 on purpose until the rename is
+        accepted or rejected. Accepting it is a one-line change to CORE_PATH
+        that fails exactly this test and the refusal above."""
+        self.assertEqual("_Other/3S-ARM.rbf", self.generator.CORE_PATH)
+        self.assertNotEqual(self.RENAMED_CORE, self.generator.CORE_PATH)
 
 
 class Mms2GbReleaseTests(unittest.TestCase):
